@@ -4,19 +4,19 @@
 
 from numpy import zeros, array, arange, dot, hstack, vstack
 
-def eq_motion(M, JcT_S, gravity_N):
-    """ equation of motion: M.dgvel + N = S.gforce + Jc_T.fc + gravity
+def eq_motion(M, Jchi_T, G_N):
+    """ equation of motion: M.dgvel + N = S.gforce + Jc_T.fc + G
 
     Rewrite:             |dgvel |
                          |fc    |
-           [M, -Jc_T, -S]|gforce| = gravity - N
+           [M, -Jc_T, -S]|gforce| = G - N
     """
-    A = hstack( (M, -JcT_S) )
-    b = gravity_N
+    A = hstack( (M, -Jchi_T) )
+    b = G_N
     return A, b
 
 
-def eq_contact_acc(Jc, dJc_gvel, n_problem, const_activity, formalism='dgvel chi', Minv_JcT_S=None, Minv_Grav_N=None):
+def eq_contact_acc(Jc, dJc_gvel, n_problem, const_activity, formalism='dgvel chi', Minv_Jchi_T=None, Minv_G_N=None):
     """ equality of contact acceleration: Jc.dgvel + dJc.gvel = 0
 
     for formalism 'dgvel chi':
@@ -50,7 +50,7 @@ def eq_contact_acc(Jc, dJc_gvel, n_problem, const_activity, formalism='dgvel chi
             A[:Adgvel.shape[0],:Adgvel.shape[1]] = Adgvel
             A_fc[arange(len(selected_fc)), Jc.shape[0]+ array(selected_fc)] = 1
         elif formalism == 'chi':
-            A = dot(Adgvel, Minv_JcT_S)
+            A = dot(Adgvel, Minv_Jchi_T)
             b = b - hstack(Adgvel, Minv_Grav_N)
             A_fc[arange(len(selected_fc)), selected_fc] = 1
 
@@ -139,7 +139,7 @@ def ineq_friction(mus, const_activity, n_pan, n_dof, n_problem, formalism='dgvel
 
 
 
-def ineq_joint_limits(qlim, vlim, gpos, gvel, hpos, hvel, n_problem, formalism='dgvel chi', Minv_JcT_S=None, Minv_Grav_N=None):
+def ineq_joint_limits(qlim, vlim, gpos, gvel, hpos, hvel, n_problem, formalism='dgvel chi', Minv_Jchi_T=None, Minv_G_N=None):
     """ inequality of joint limits: B_min <= K.dgvel <= B_max
     with B_min = max(2*(pos_lim_dn - pos -hpos.gvel)/hpos**2, (vel_lim_dn - gvel)/hvel)
          B_max = min(2*(pos_lim_up - pos -hpos.gvel)/hpos**2, (vel_lim_up - gvel)/hvel)
@@ -173,8 +173,8 @@ def ineq_joint_limits(qlim, vlim, gpos, gvel, hpos, hvel, n_problem, formalism='
         G = zeros((2*n_lim_dof, n_problem))
         G[:, :len(B_min)] = K
     elif formalism == 'chi':
-        G = dot(K, Minv_JcT_S)
-        h = h - dot(K, Minv_Grav_N)
+        G = dot(K, Minv_Jchi_T)
+        h = h - dot(K, Minv_G_N)
 
     return G, h
 

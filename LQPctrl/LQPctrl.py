@@ -42,7 +42,7 @@ def lqpc_options(options={}):
     _options = {'pos horizon'  : None,
                 'vel horizon'  : None,
                 'npan'         : 8,
-                'cost'         : 'normal',
+                'cost'         : 'normal', # | 'wrench consistent'
                 'base weights' : (1e-8, 1e-8, 1e-8),#(1e-1, 1e-1, 1e-1),#
                 'solver'       : 'cvxopt',
                 'formalism'    : 'dgvel chi', # | 'chi'
@@ -220,6 +220,9 @@ class LQPcontroller(Controller):
         if all([m is None for m in self._mus]):
             self._mus = []
 
+        self.Jc = zeros((self.n_fc, self.ndof))
+        self.dJc = zeros((self.n_fc, self.ndof))
+
 
     def _init_solver(self):
         """
@@ -227,10 +230,13 @@ class LQPcontroller(Controller):
         from solver import init_solver
         init_solver(self.options['solver'], self.solver_options)
 
+        self.cost = self.options['cost']
+        self.formalism = self.options['formalism']
+        self.n_chi = self.n_fc + self.n_gforce
         if self.options['formalism'] == 'dgvel chi':
-            self.n_problem = self.ndof + self.n_fc + self.n_gforce
+            self.n_problem = self.ndof + self.n_chi
         elif self.options['formalism'] == 'chi':
-            self.n_problem = self.n_fc + self.n_gforce
+            self.n_problem = self.n_chi
         self.X_solution = zeros(self.n_problem)
 
         from numpy import ones, diag
@@ -276,8 +282,8 @@ class LQPcontroller(Controller):
         _tstart = _time()
 
         _t0 = _time() ### get robot state ###
-        rstate = self._get_robot_state(dt)
-        _performance['get robot state'] = _time() - _t0
+        rstate = self._update_robot_state(dt)
+        _performance['update robot state'] = _time() - _t0
 
         _t0 = _time() ### update tasks and events ###
         for e in self.events:
@@ -334,7 +340,7 @@ class LQPcontroller(Controller):
 #
 ################################################################################
 
-    def _get_robot_state(self, dt):
+    def _update_robot_state(self, dt):
         """ Compute the state of the robot.
 
         It returns a dictionary with the following string keys:
@@ -356,46 +362,50 @@ class LQPcontroller(Controller):
         if self.WeightController is not None:
             gravity[:] = self.WeightController.update()[0]
 
-        Jc, dJc = self._get_Jc()
+        self._update_Jc()
 
         rstate = {}
         rstate['X_solution'] = self.X_solution
         rstate['linear gpos'] = linear_gpos
         rstate['gvel'] = self.world.gvel
-        rstate['Jc'] = Jc
-        rstate['dJc'] = dJc
-        rstate['gravity'] = gravity
-        rstate['gravity_N'] = gravity-dot(self.world.nleffects, self.world.gvel)
-        rstate['JcT_S'] = hstack((Jc.T, self.S))
-        rstate['dJc_gvel'] = dot(dJc, self.world.gvel)
+        rstate['Jc'] = self.Jc
+        rstate['dJc'] = self.dJc
+        rstate['Jchi.T'] = hstack((self.Jc.T, self.S))
+        rstate['M'] = self.world.mass
+        rstate['g-n'] = gravity - dot(self.world.nleffects, self.world.gvel)
+        rstate['dJc.gvel'] = dot(self.dJc, self.world.gvel)
 
-        if self.options['formalism'] == 'chi':
+        if self.cost == 'wrench consistent':
+            if 'Minv' not in rstate:
+                rstate['Minv'] = inv(self.world.mass)
+
+        if self.formalism == 'chi':
             from numpy.linalg import inv
             rstate['Minv'] = inv(self.world.mass)
-            rstate['Minv(JcT_S)'] = dot(rstate['Minv'], rstate['JcT_S'])
-            rstate['Minv(gravity_N)'] = dot(rstate['Minv'], rstate['gravity_N'])
+            rstate['Minv(Jchi.T)'] = dot(rstate['Minv'], rstate['Jchi.T'])
+            rstate['Minv(g-n)'] = dot(rstate['Minv'], rstate['g-n'])
 
         return rstate
 
 
-    def _get_Jc(self):
+    def _update_Jc(self):
         """Extract the Jacobian and dJacobian matrix of contact points.
 
         """
         from arboris.constraints import PointContact, BallAndSocketConstraint
         from arboris.homogeneousmatrix import adjoint, dAdjoint, iadjoint, inv
-        Jc = zeros((self.n_fc, self.ndof))
-        dJc = zeros((self.n_fc, self.ndof))
+        self.Jc[:]  = 0.
+        self.dJc[:] = 0.
         i = 0
         for c in self.constraints:
             if c.is_enabled() and c.is_active() and self.is_enabled[c]:
                 if isinstance(c, PointContact):
                     if c._frames[1].body in self.bodies:
-                        Jc [3*i:(3*(i+1)), :] += c._frames[1].jacobian[3:6]
-                        dJc[3*i:(3*(i+1)), :] += c._frames[1].djacobian[3:6]
+                        self.Jc [3*i:(3*(i+1)), :] += c._frames[1].jacobian[3:6]
+                        self.dJc[3*i:(3*(i+1)), :] += c._frames[1].djacobian[3:6]
                     if c._frames[0].body in self.bodies:
-                        Jc [3*i:(3*(i+1)), :] -= c._frames[0].jacobian[3:6]
-                        dJc[3*i:(3*(i+1)), :] -= c._frames[0].djacobian[3:6]
+                        self.Jc [3*i:(3*(i+1)), :] -= c._frames[0].jacobian[3:6]
+                        self.dJc[3*i:(3*(i+1)), :] -= c._frames[0].djacobian[3:6]
                 elif isinstance(c, BallAndSocketConstraint):
                     H1_0   = dot(inv(c._frames[1].pose), c._frames[0].pose)
                     Ad1_0  = adjoint(H1_0)
@@ -408,10 +418,9 @@ class LQPcontroller(Controller):
                     J1 = c._frames[1].jacobian
                     dJ0 = dot(Ad1_0, c._frames[0].djacobian) + dot(dAdjoint(Ad1_0, T0_1_0), c._frames[0].jacobian)
                     dJ1 = c._frames[1].djacobian
-                    Jc[3*i:(3*(i+1)), :]  = (J1[3:6] - J0[3:6])
-                    dJc[3*i:(3*(i+1)), :] = (dJ1[3:6] - dJ0[3:6])
+                    self.Jc[3*i:(3*(i+1)), :]  = (J1[3:6] - J0[3:6])
+                    self.dJc[3*i:(3*(i+1)), :] = (dJ1[3:6] - dJ0[3:6])
             i+=1
-        return Jc, dJc
 
 
 
@@ -443,43 +452,41 @@ class LQPcontroller(Controller):
         :return: the set of equalities and inequalities (A,b,G,h)
 
         """
-        gpos = rstate['linear gpos']
-        gvel = rstate['gvel']
-        M = self.world.mass
-        N = dot(self.world.nleffects, gvel)
-        Jc = rstate['Jc']
-        dJc = rstate['dJc']
-        gravity = rstate['gravity']
-        S = self.S
-        hpos, hvel = max(self.options['pos horizon'], dt), max(self.options['vel horizon'], dt)
+        from numpy import max
+        from constraints import eq_motion, eq_contact_acc, ineq_gforcemax, ineq_joint_limits, ineq_friction
+
+        Minv_Jchi_T = rstate.get('Minv(Jchi.T)') # these functions return None
+        Minv_G_N = rstate.get('Minv(g-n)') # if Minv_Jchi_T & Minv_G_N not in rstate (not computed)
         const_activity = [c.is_enabled() and c.is_active() and self.is_enabled[c] for c in self.constraints]
 
-
         ####### Compute constraints #######
-        from constraints import eq_motion, eq_contact_acc, ineq_gforcemax, ineq_joint_limits, ineq_friction
-        
         equalities   = [(zeros((0, self.n_problem)), zeros(0))]
         inequalities = [(zeros((0, self.n_problem)), zeros(0))]
         
-        inequalities.append( ineq_gforcemax(self._gforcemax, self.ndof, self.n_fc, self.options['formalism']) )
-        if self.options['formalism'] == 'dgvel chi':
-            equalities.append( eq_motion(M, rstate['JcT_S'], rstate['gravity_N']) )
+        inequalities.append( ineq_gforcemax(self._gforcemax, self.ndof, self.n_fc, self.formalism) )
+        if self.formalism == 'dgvel chi':
+            M = rstate['M']
+            Jchi_T = rstate['Jchi.T']
+            G_N = rstate['g-n']
+            equalities.append( eq_motion(M, Jchi_T, G_N) )
         if len(self.constraints) > 0:
-            equalities.append( eq_contact_acc(Jc, rstate['dJc_gvel'], self.n_problem, const_activity,
-                                              self.options['formalism'], rstate['Minv(JcT_S)'], rstate['Minv(gravity_N)']) )
+            Jc = rstate['Jc']
+            dJc_gvel = rstate['dJc.gvel']
+            equalities.append( eq_contact_acc(Jc, dJc_gvel, self.n_problem, const_activity, self.formalism, Minv_Jchi_T, Minv_G_N) )
         if len(self._mus) > 0:
-            inequalities.append( ineq_friction(self._mus, const_activity, self.options['npan'], self.ndof, self.n_problem, self.options['formalism']) )
+            npan = self.options['npan']
+            inequalities.append( ineq_friction(self._mus, const_activity, npan, self.ndof, self.n_problem, self.formalism) )
         if len(self._qlim) > 0 or len(self._vlim) > 0:
-            inequalities.append( ineq_joint_limits(self._qlim, self._vlim, gpos, gvel, hpos, hvel,
-                                                   self.n_problem, self.options['formalism'], rstate['Minv(JcT_S)'], rstate['Minv(gravity_N)']) )
+            gpos = rstate['linear gpos']
+            gvel = rstate['gvel']
+            hpos, hvel = max(self.options['pos horizon'], dt), max(self.options['vel horizon'], dt)
+            inequalities.append( ineq_joint_limits(self._qlim, self._vlim, gpos, gvel, hpos, hvel, self.n_problem, self.formalism, Minv_Jchi_T, Minv_G_N) )
 
         eq_A  , eq_b   = zip(*equalities)
         ineq_G, ineq_h = zip(*inequalities)
         
-        A = vstack(eq_A)
-        b = hstack(eq_b)
-        G = vstack(ineq_G)
-        h = hstack(ineq_h)
+        A, b = vstack(eq_A), hstack(eq_b)
+        G, h = vstack(ineq_G), hstack(ineq_h)
 
         return A, b, G, h
 

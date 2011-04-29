@@ -43,6 +43,7 @@ def lqpc_options(options={}):
                 'vel horizon'  : None,
                 'npan'         : 8,
                 'cost'         : 'normal', # | 'wrench consistent'
+                'norm'         : 'normal', # | 'inv(lambda)'
                 'base weights' : (1e-8, 1e-8, 1e-8),#(1e-1, 1e-1, 1e-1),#
                 'solver'       : 'cvxopt',
                 'formalism'    : 'dgvel chi', # | 'chi'
@@ -231,6 +232,7 @@ class LQPcontroller(Controller):
         init_solver(self.options['solver'], self.solver_options)
 
         self.cost = self.options['cost']
+        self.norm = self.options['norm']
         self.formalism = self.options['formalism']
         self.n_chi = self.n_fc + self.n_gforce
         if self.options['formalism'] == 'dgvel chi':
@@ -241,13 +243,13 @@ class LQPcontroller(Controller):
 
         from numpy import ones, diag
         w_dgvel, w_fc, w_gforce = self.options['base weights']
-        if self.options['cost'] is 'normal':
-            if self.options['formalism'] == 'dgvel chi':
-                Ediag = ones(self.ndof)*w_dgvel
-            else:
-                Ediag = zeros(0)
-            Ediag = hstack((Ediag, ones(self.n_gforce)*w_gforce))
-            Ediag = hstack((Ediag, ones(self.n_fc)*w_fc))
+        #if self.options['cost'] is 'normal': #TODO: vary along 'cost'
+        if self.options['formalism'] == 'dgvel chi':
+            Ediag = ones(self.ndof)*w_dgvel
+        else:
+            Ediag = zeros(0)
+        Ediag = hstack((Ediag, ones(self.n_gforce)*w_gforce))
+        Ediag = hstack((Ediag, ones(self.n_fc)*w_fc))
         self.E_base = diag(Ediag)
         self.f_base = zeros(self.n_problem)
 
@@ -352,6 +354,7 @@ class LQPcontroller(Controller):
         """
         from arboris.core import LinearConfigurationSpaceJoint
         from numpy import nan
+        from numpy.linalg import inv
         
         linear_gpos = nan*zeros(self.ndof)
         for j in self.world.getjoints():
@@ -376,12 +379,11 @@ class LQPcontroller(Controller):
         rstate['dJc.gvel'] = dot(self.dJc, self.world.gvel)
 
         if self.cost == 'wrench consistent':
-            if 'Minv' not in rstate:
-                rstate['Minv'] = inv(self.world.mass)
+            rstate['Minv'] = inv(self.world.mass)
 
         if self.formalism == 'chi':
-            from numpy.linalg import inv
-            rstate['Minv'] = inv(self.world.mass)
+            if 'Minv' not in rstate:
+                rstate['Minv'] = inv(self.world.mass)
             rstate['Minv(Jchi.T)'] = dot(rstate['Minv'], rstate['Jchi.T'])
             rstate['Minv(g-n)'] = dot(rstate['Minv'], rstate['g-n'])
 

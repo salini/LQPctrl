@@ -27,24 +27,60 @@ class Task(NamedObject):
         self._cdof = cdof
 
     def init(self, world, LQP_ctrl):
-        self._cost = LQP_ctrl.options['cost']
-        self._formalism = LQP_ctrl.options['formalism']
+        self._cost = LQP_ctrl.cost
+        self._norm = LQP_ctrl.norm
+        self._formalism = LQP_ctrl.formalism
         self._E = zeros((len(self._cdof), LQP_ctrl.n_problem))
         self._f = zeros(len(self._cdof))
-
-        self._prev_E = self._E.copy()
-        self._prev_f = self._f.copy()
         self._error = 0.
 
+        # some parameters that can be used, depend on cost, Task type and formalism
+        self._J  = zeros((len(self._cdof), LQP_ctrl.ndof))
+        self._dJ = zeros((len(self._cdof), LQP_ctrl.ndof))
+        self._inv_lambda = zeros((len(self._cdof), len(self._cdof)))
+        self._lambda     = zeros((len(self._cdof), len(self._cdof)))
+
+
+    @abstractmethod
     def update(self, rstate, dt):
         self._compute_error(rstate['X_solution'])
+        #
+        # here: should update objective and jacobian of the task
+        #
+        self._update_E_f(rstate, dt)
+
+    def _update_E_f(self, rstate, dt):
+        """
+        """
+        self._update_lambda(rstate, dt)
+        self._update_E_f_cost(rstate, dt)
+        self._update_E_f_formalism(rstate, dt)
+
+    @abstractmethod
+    def _update_E_f_cost(self, rstate, dt):
+        """
+        """
+        pass
+
+    @abstractmethod
+    def _update_E_f_formalism(self, rstate, dt):
+        """
+        """
+        pass
+
+    def _update_lambda(self, rstate, dt):
+        """
+        """
+        from numpy.linalg import inv
+        self._inv_lambda[:] = dot(self._J, dot(rstate['Minv'], self._J.T))
+        self._lambda[:]     = inv(self._inv_lambda)
 
     def _compute_error(self, X_solution):
         self._error = norm(dot(self._E, X_solution) + self._f)
 
 
     @property
-    def weight(self):
+    def level(self):
         return self._level
 
     @property
@@ -83,22 +119,47 @@ class dTwistTask(Task):
         Task.init(self, world, LQP_ctrl)
 
         self._ndof = LQP_ctrl.ndof
-        self._J     = zeros((len(self._cdof), self._ndof))
-        self._dJ    = zeros((len(self._cdof), self._ndof))
         self._dVdes = zeros(len(self._cdof))
 
-    def update(self, rstate, dt):
-        Task.update(self, rstate, dt)
+        self._E_dgvel = zeros((len(self._cdof), LQP_ctrl.ndof))
+        self._f_dgvel = zeros(len(self._cdof))
 
-    def _update_E_f(self, rstate, dt):
+    def update(self, rstate, dt):
+        self._compute_error(rstate['X_solution'])
+        if self._cost == 'wrench consistent' or self._norm == 'inv(lambda)':
+            self._update_lambda(rstate, dt)
+        #
+        # here: should update objective and jacobian of the task
+        #
+        # finish the function with self._update_E_f(rstate, dt)
+
+    def _update_E_f_cost(self, rstate, dt):
+        """
+        """
+        if self._cost == 'normal':
+            self._E_dgvel[:] = self._J
+            self._f_dgvel[:] = dot(self._dJ, rstate['gvel']) - self._dVdes
+        elif self._cost == 'wrench consistent':
+            self._E_dgvel[:] = dot(self._lambda, self._J)
+            self._f_dgvel[:] = dot(self._lambda, dot(self._dJ, rstate['gvel']) - self._dVdes)
+        
+        if self._norm == 'normal':
+            pass
+        elif self._norm == 'inv(lambda)':
+            from numpy.linalg import cholesky
+            L_T = cholesky(self._inv_lambda).T
+            self._E_dgvel[:] = dot(L_T, self._E_dgvel[:])
+            self._f_dgvel[:] = dot(L_T, self._f_dgvel[:])
+
+    def _update_E_f_formalism(self, rstate, dt):
         """
         """
         if self._formalism == 'dgvel chi':
-            self._E[:,0:self._ndof] = self._J
-            self._f[:] = dot(self._dJ, rstate['gvel']) - self._dVdes
+            self._E[:,0:self._ndof] = self._E_dgvel
+            self._f[:]              = self._f_dgvel
         elif self._formalism == 'chi':
-            self._E[:] = dot(self._J, rstate['Minv(JcT_S)'])
-            self._f[:] = dot(self._dJ, rstate['gvel']) - self._dVdes + dot(self._J, rstate['Minv(gravity_N)'])
+            self._E[:] = dot(self._E_dgvel, rstate['Minv(Jchi.T)'])
+            self._f[:] = self._f_dgvel + dot(self._E_dgvel, rstate['Minv(g-n)'])
 
 
 class JointTask(dTwistTask):
@@ -118,7 +179,6 @@ class JointTask(dTwistTask):
             assert(all([cd < self._joint.ndof for cd in self._cdof]))
         self._cdof_in_joint = list(self._cdof)
 
-
     def init(self, world, LQP_ctrl):
         dTwistTask.init(self, world, LQP_ctrl)
         self._ctrl.init(world, LQP_ctrl)
@@ -127,32 +187,17 @@ class JointTask(dTwistTask):
         self._cdof = joint_dofs_in_world[self._cdof_in_joint]
         self._J[arange(len(self._cdof)), self._cdof] = 1
 
-        if self._formalism == 'dgvel chi':
-            self._E[:,0:self._ndof] = self._J
-
-
     def update(self, rstate, dt):
         """
         """
         dTwistTask.update(self, rstate, dt)
+        
         gpos = self._joint.gpos
         gvel = self._joint.gvel
-
         cmd = self._ctrl.update(gpos, gvel, rstate, dt)
-        print "ctrl err: ", self._ctrl.error[self._cdof_in_joint]
-
         self._dVdes[:] = cmd[self._cdof_in_joint]
+
         self._update_E_f(rstate, dt)
-
-
-    def _update_E_f(self, rstate, dt):
-        """
-        """
-        if self._formalism == "dgvel chi":
-            self._f[:] = - self._dVdes
-        elif self._formalism == 'chi':
-            self._E[:] = dot(self._J, rstate['Minv(JcT_S)'])
-            self._f[:] = dot(self._dJ, rstate['gvel']) - self._dVdes + dot(self._J, rstate['Minv(gravity_N)'])
 
 
 class MultiJointTask(dTwistTask):
@@ -176,20 +221,50 @@ class WrenchTask(Task):
         Task.init(self, world, LQP_ctrl)
 
         self._ndof = LQP_ctrl.ndof
-        self._n_gforce = LQP_ctrl.n_gforce
-        self._JS    = zeros((len(self._cdof), self._n_gforce))
         self._Wdes = zeros(len(self._cdof))
 
-    def update(self, rstate, dt):
-        Task.update(self, rstate, dt)
+        self._E_chi = zeros((len(self._cdof), LQP_ctrl.n_chi))
+        self._f_chi = zeros(len(self._cdof))
 
-    def _update_E_f(self, rstate, dt):
+    def update(self, rstate, dt):
+        self._compute_error(rstate['X_solution'])
+        if self._norm == 'inv(lambda)':
+            self._update_lambda(rstate, dt)
+        #
+        # here: should update objective and jacobian of the task
+        #
+        # finish the function with self._update_E_f(rstate, dt)
+
+    def _update_E_f_cost(self, rstate, dt):
+        """
+        """
+        if self._cost == 'normal':
+            self._E_chi[:] = dot(self._J, rstate['Jchi.T'])
+            self._f_chi[:] =  - self._Wdes
+        elif self._cost == 'wrench consistent':
+            self._E_chi[:] = dot(self._J, rstate['Jchi.T'])
+            self._f_chi[:] =  - self._Wdes
+        
+        if self._norm == 'normal':
+            pass
+        elif self._norm == 'inv(lambda)':
+            from numpy.linalg import cholesky
+            L_T = cholesky(self._inv_lambda).T
+            self._E_chi[:] = dot(L_T, self._E_chi[:])
+            self._f_chi[:] = dot(L_T, self._f_chi[:])
+
+    def _update_E_f_formalism(self, rstate, dt):
         """
         """
         if self._formalism == 'dgvel chi':
-            self._f[:] = - self._Wdes
+            self._E[:,self._ndof: ] = self._E_chi
+            self._f[:]              = self._f_chi
         elif self._formalism == 'chi':
-            self._f[:] =  - self._Wdes
+            self._E[:] = self._E_chi
+            self._f[:] = self._f_chi
+    
+    def update(self, rstate, dt):
+        Task.update(self, rstate, dt)
 
 
 class TorqueTask(WrenchTask):
@@ -213,22 +288,17 @@ class TorqueTask(WrenchTask):
 
         joint_dofs_in_world = arange(self._ndof)[self._joint.dof]
         self._cdof = joint_dofs_in_world[self._cdof_in_joint]
-        J = zeros((len(self._cdof), self._ndof))
-        J[arange(len(self._cdof)), self._cdof] = 1
-        self._JS = dot(J, LQP_ctrl.S)
-
-        if self._formalism == 'dgvel chi':
-            self._E[:,(LQP_ctrl.ndof+LQP_ctrl.n_fc):] = self._JS
-        elif self._formalism == 'chi':
-            self._E[:,LQP_ctrl.n_fc:] = self._JS
+        self._J = zeros((len(self._cdof), self._ndof))
+        self._J[arange(len(self._cdof)), self._cdof] = 1
 
     def update(self, rstate, dt):
         """
         """
-        WrenchTask.update(self, rstate, dt)
+        self._compute_error(rstate['X_solution'])
+
         cmd = self._ctrl.update(rstate, dt)
-        print "up!! ", self._Wdes, cmd, self._cdof_in_joint
         self._Wdes[:] = cmd[self._cdof_in_joint]
+
         self._update_E_f(rstate, dt)
 
 

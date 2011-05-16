@@ -1,1 +1,3 @@
 *.pyc
+*.pyo
+examples/scene.dae

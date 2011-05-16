@@ -42,10 +42,10 @@ def lqpc_options(options={}):
     _options = {'pos horizon'  : None,
                 'vel horizon'  : None,
                 'npan'         : 8,
-                'cost'         : 'normal', # | 'wrench consistent'
-                'norm'         : 'normal', # | 'inv(lambda)'
                 'base weights' : (1e-8, 1e-8, 1e-8),#(1e-1, 1e-1, 1e-1),#
                 'solver'       : 'cvxopt',
+                'cost'         : 'normal', # | 'wrench consistent'
+                'norm'         : 'normal', # | 'inv(lambda)'
                 'formalism'    : 'dgvel chi', # | 'chi'
                }
     _options.update(options)
@@ -240,6 +240,7 @@ class LQPcontroller(Controller):
         elif self.options['formalism'] == 'chi':
             self.n_problem = self.n_chi
         self.X_solution = zeros(self.n_problem)
+        self._gforce = zeros(self.ndof)
 
         from numpy import ones, diag
         w_dgvel, w_fc, w_gforce = self.options['base weights']
@@ -327,13 +328,13 @@ class LQPcontroller(Controller):
                     i+=1
                 _performance['constrain next level'].append(_time() - _t0)
 
-            gforce = self._get_gforce_from_optimization(self.X_solution)
+            self._update_gforce_from_optimization(self.X_solution)
             _performance['total'] = _time() - _tstart
             self._performance.append(_performance)
         else:
-            gforce = zeros(self.ndof)
+            self._gforce[:] = 0.
 
-        return (gforce, zeros((self.ndof, self.ndof)))
+        return (self._gforce, zeros((self.ndof, self.ndof)))
 
 
 ################################################################################
@@ -380,6 +381,10 @@ class LQPcontroller(Controller):
 
         if self.cost == 'wrench consistent':
             rstate['Minv'] = inv(self.world.mass)
+
+        if self.norm == 'inv(lambda)':
+            if 'Minv' not in rstate:
+                rstate['Minv'] = inv(self.world.mass)
 
         if self.formalism == 'chi':
             if 'Minv' not in rstate:
@@ -539,14 +544,18 @@ class LQPcontroller(Controller):
 #   POST RESOLUTION FUNCTIONS
 #
 ################################################################################
-    def _get_gforce_from_optimization(self, X_solution):
+    def _update_gforce_from_optimization(self, X_solution):
         """ Return the interesting part (the torque) of the solution vector.
         
         """
         if self.options['formalism'] == 'dgvel chi':
-            return dot(self.S, X_solution[(self.ndof+self.n_fc):])
+            self._gforce[:] = dot(self.S, X_solution[(self.ndof+self.n_fc):])
         elif self.options['formalism'] == 'chi':
-            return dot(self.S, X_solution[self.n_fc:])
+            self._gforce[:] = dot(self.S, X_solution[self.n_fc:])
+
+
+    def get_gforce(self):
+        return self._gforce.copy()
 
 
     def get_performance(self):
@@ -554,8 +563,9 @@ class LQPcontroller(Controller):
         """
         from numpy import sum, mean
         perf = {}
-        for n in self._performance[0]:
-            perf[n] = mean([sum(p[n]) for p in self._performance])
+        if len(self._performance):
+            for n in self._performance[0]:
+                perf[n] = mean([sum(p[n]) for p in self._performance])
         return perf
 
 

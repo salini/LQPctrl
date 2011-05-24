@@ -43,16 +43,18 @@ def eq_contact_acc(Jc, dJc_gvel, n_problem, const_activity, formalism='dgvel chi
         Adgvel = Jc[selected_dof, :]
         b = -dJc_gvel[selected_dof]
 
-        A_fc = zeros((len(selected_fc), A.shape[1]))
+        A_fc = zeros((len(selected_fc), n_problem))
         b_fc = zeros(len(selected_fc))
         if formalism == 'dgvel chi':
             A = zeros((len(selected_dof), n_problem))
             A[:Adgvel.shape[0],:Adgvel.shape[1]] = Adgvel
-            A_fc[arange(len(selected_fc)), Jc.shape[0]+ array(selected_fc)] = 1
+            if len(selected_fc):
+                A_fc[arange(len(selected_fc)), Jc.shape[0]+ array(selected_fc)] = 1
         elif formalism == 'chi':
             A = dot(Adgvel, Minv_Jchi_T)
             b = b - hstack(Adgvel, Minv_Grav_N)
-            A_fc[arange(len(selected_fc)), selected_fc] = 1
+            if len(selected_fc):
+                A_fc[arange(len(selected_fc)), selected_fc] = 1
 
         A = vstack((A,A_fc))
         b = hstack((b,b_fc))
@@ -107,7 +109,7 @@ def ineq_friction(mus, const_activity, n_pan, n_dof, n_problem, formalism='dgvel
         G = zeros((0, n_problem))
         h = zeros(0)
     else:
-        from numpy import cos, sin
+        from numpy import cos, sin, pi
         c_theta_2 = cos(pi/n_pan)
         def _gen_cone(_mu):
             _mu2 = _mu * c_theta_2
@@ -115,7 +117,7 @@ def ineq_friction(mus, const_activity, n_pan, n_dof, n_problem, formalism='dgvel
             gen_cone = zeros((n_pan, 3))
             gen_cone[:,0] = cos(a)
             gen_cone[:,1] = sin(a)
-            gen_cone[:,2] = _mu2
+            gen_cone[:,2] = - _mu2
             return gen_cone
 
         selected_fc  = []
@@ -123,7 +125,7 @@ def ineq_friction(mus, const_activity, n_pan, n_dof, n_problem, formalism='dgvel
             if const_activity[i] is True and mus[i] is not None:
                 selected_fc.append(i)
 
-        n_sel_fc = len(selected_fc)
+        n_sel_fc = n_pan*len(selected_fc)
         G = zeros((n_sel_fc, n_problem))
         h = zeros(n_sel_fc)
         if formalism == 'dgvel chi':

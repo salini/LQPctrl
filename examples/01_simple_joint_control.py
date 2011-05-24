@@ -64,10 +64,12 @@ print("end of the simulation")
 print_lqp_perf(lqpc)
 
 import pylab as pl
-pl.plot(obs[-1].get_positions())
+pl.plot(obs[-1].get_record())
 xlim = pl.xlim()
 pl.plot(xlim, [.1,.1], 'r:')
 pl.ylim([0, .6])
-pl.ylabel("Shoulder position (rad)")
+pl.ylabel("position (rad)")
+pl.xlabel("step")
+pl.title("Shoulder Joint Evolution")
 pl.show()
 

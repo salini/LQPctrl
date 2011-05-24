@@ -64,8 +64,10 @@ print("end of the simulation")
 print_lqp_perf(lqpc)
 
 import pylab as pl
-pl.plot(obs[-1].get_gforce())
+pl.plot(obs[-1].get_record())
 pl.ylim([0,.15])
 pl.ylabel("Gforce (N.m)")
+pl.xlabel("step")
+pl.title("Shoulder Joint Evolution")
 pl.show()
 

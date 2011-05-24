@@ -6,7 +6,8 @@
 from arboris.core import World, Observer
 from arboris.robots import simplearm
 from arboris.controllers import WeightController
-
+from arboris.shapes import Plane, Point
+from arboris.constraints import SoftFingerContact
 
 def create_3r_and_init(gpos=(0,0,0), gvel=(0,0,0), gravity=False):
     ## CREATE THE WORLD
@@ -31,6 +32,19 @@ def create_3r_and_init(gpos=(0,0,0), gvel=(0,0,0), gravity=False):
     return w
 
 
+def add_plane_and_point_on_arm(w, coeff):
+    plane = Plane(w.ground, coeff, "plane")
+    w.register(plane)
+    eeframe = w.getframes()['EndEffector']
+    sphere = Point(eeframe, "point")
+    w.register(sphere)
+    
+    w.register(SoftFingerContact((plane, sphere), 1.5, name="const"))
+    
+    w.init()
+
+
+
 def get_usual_observers(w, scene=True, perf=True, h5=False, daenim=True):
     from arboris.visu_collada import write_collada_scene
     from arboris.observers import PerfMonitor, Hdf5Logger, DaenimCom
@@ -42,7 +56,7 @@ def get_usual_observers(w, scene=True, perf=True, h5=False, daenim=True):
     if h5:
         obs.append(Hdf5Logger("sim.h5", group="/", mode="w", flat=True))
     if daenim:
-        obs.append(DaenimCom("daenim", "scene.dae", options="-fps 15",  flat=True)) # -eye 1 0 0 -coi 0 0 0 -up 0 1 0
+        obs.append(DaenimCom("daenim", "scene.dae", options="-fps 15",  flat=True))
     return obs
 
 def print_lqp_perf(lqpc):
@@ -52,37 +66,61 @@ def print_lqp_perf(lqpc):
         percent = round(v/perf['total']*100.,2)
         print k, '(', percent, '%): ', round(v*1000,2), 'ms'
 
-class RecordJointPosition(Observer):
-    def __init__(self, joint):
-        self.joint = joint
+
+from abc import ABCMeta, abstractmethod, abstractproperty
+class _Recorder(Observer):
+    __metaclass__ = ABCMeta
+
+    def __init__(self):
         self._record = []
 
     def init(self, world, timeline):
         pass
+
+    @abstractmethod
+    def update(self, dt):
+        pass
+
+    def finish(self):
+        pass
+
+    def get_record(self):
+        return self._record
+
+
+class RecordJointPosition(_Recorder):
+    def __init__(self, joint):
+        _Recorder.__init__(self)
+        self.joint = joint
 
     def update(self, dt):
         self._record.append(self.joint.gpos.copy())
 
-    def finish(self):
-        pass
 
-    def get_positions(self):
-        return self._record
-
-
-class RecordGforce(Observer):
+class RecordGforce(_Recorder):
     def __init__(self, lqpc):
+        _Recorder.__init__(self)
         self.lqpc = lqpc
-        self._record = []
-
-    def init(self, world, timeline):
-        pass
 
     def update(self, dt):
         self._record.append(self.lqpc.get_gforce())
 
-    def finish(self):
-        pass
 
-    def get_gforce(self):
-        return self._record
+class RecordWrench(_Recorder):
+    def __init__(self, const):
+        _Recorder.__init__(self)
+        self.const = const
+
+    def update(self, dt):
+        self._record.append(self.const._force.copy())
+
+
+class RecordFramePosition(_Recorder):
+    def __init__(self, frame):
+        _Recorder.__init__(self)
+        self.frame = frame
+
+    def update(self, dt):
+        self._record.append(self.frame.pose[0:3,3].copy())
+
+

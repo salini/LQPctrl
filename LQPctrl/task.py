@@ -3,7 +3,8 @@
 #date=21 april 2011
 
 from abc import ABCMeta, abstractmethod, abstractproperty
-from arboris.core import NamedObject
+from arboris.core import NamedObject, Joint, Frame, Constraint
+from arboris.constraints import BallAndSocketConstraint, PointContact, SoftFingerContact
 from numpy import dot, zeros, arange
 from numpy.linalg import norm
 
@@ -83,6 +84,10 @@ class Task(NamedObject):
         self._f = zeros(len(self._cdof))
         self._error = 0.
 
+        self._inv_lambda = zeros((len(self._cdof), len(self._cdof)))
+        self._lambda     = zeros((len(self._cdof), len(self._cdof)))
+        self._L_T        = zeros((len(self._cdof), len(self._cdof)))
+
 
     def update(self, rstate, dt):
         """ Update the task parameters.
@@ -138,6 +143,32 @@ class Task(NamedObject):
         """ Update lambda, the task mass matrix in operational space.
         """
         pass
+
+
+    def _update_inv_lambda(self):
+        """
+        """
+        from numpy import diag, sum, where
+        from numpy.linalg import cholesky, svd, LinAlgError
+        try:
+            self._L_T[:] = cholesky(self._inv_lambda).T
+        except LinAlgError:
+            u,s,vh = svd(self._J, full_matrices=False)
+            r = sum(where(s>1e-3, 1, 0))
+            inv_lambda_reduce = dot(u.T ,dot(self._inv_lambda, u))
+            L = cholesky(inv_lambda_reduce)
+            self._L_T[:] = 0.
+            self._L_T[:r,:] = dot(u, L).T
+
+
+    def _update_inv_inv_lambda(self):
+        """
+        """
+        from numpy.linalg import inv, pinv, LinAlgError
+        try:
+            self._lambda[:] = inv(self._inv_lambda)
+        except LinAlgError:
+            self._lambda[:] = pinv(self._inv_lambda)
 
 
     @abstractmethod
@@ -229,18 +260,17 @@ class dTwistTask(Task):
         # some parameters that can be used, depend on task/cost/norm/formalism.
         self._J  = zeros((len(self._cdof), LQP_ctrl.ndof))
         self._dJ = zeros((len(self._cdof), LQP_ctrl.ndof))
-        self._inv_lambda = zeros((len(self._cdof), len(self._cdof)))
-        self._lambda     = zeros((len(self._cdof), len(self._cdof)))
 
 
     def _update_lambda(self, rstate, dt):
         """ Update lambda, the task mass matrix in operational space.
         """
-        from numpy.linalg import inv
-        if self._cost == 'wrench consistent' or self._norm == 'inv(lambda)':
+        if self._norm == 'inv(lambda)' or self._cost == 'wrench consistent':
             self._inv_lambda[:] = dot(self._J, dot(rstate['Minv'], self._J.T))
+            if self._norm == 'inv(lambda)':
+                self._update_inv_lambda()
             if self._cost == 'wrench consistent':
-                self._lambda[:]     = inv(self._inv_lambda)
+                self._update_inv_inv_lambda()
 
 
     def _update_E_f_cost(self, rstate, dt):
@@ -279,10 +309,8 @@ class dTwistTask(Task):
         if self._norm == 'normal':
             pass
         elif self._norm == 'inv(lambda)':
-            from numpy.linalg import cholesky
-            L_T = cholesky(self._inv_lambda).T
-            self._E_dgvel[:] = dot(L_T, self._E_dgvel[:])
-            self._f_dgvel[:] = dot(L_T, self._f_dgvel[:])
+            self._E_dgvel[:] = dot(self._L_T, self._E_dgvel[:])
+            self._f_dgvel[:] = dot(self._L_T, self._f_dgvel[:])
 
 
     def _update_E_f_formalism(self, rstate, dt):
@@ -316,6 +344,7 @@ class JointTask(dTwistTask):
 
         self._joint = joint
         self._ctrl = ctrl
+        assert(isinstance(joint, Joint))
         assert(isinstance(ctrl, dTwistCtrl))
 
         if self._cdof == []:
@@ -346,11 +375,63 @@ class JointTask(dTwistTask):
         self._dVdes[:] = cmd[self._cdof_in_joint]
 
 
-class MultiJointTask(dTwistTask):
-    def __init__(self):
-        pass
-
 class FrameTask(dTwistTask):
+    """ TODO.
+    """
+
+
+    def __init__(self, frame, ctrl, *args, **kwargs):
+        """ TODO.
+        """
+        dTwistTask.__init__(self, *args, **kwargs)
+
+        self._frame = frame
+        self._ctrl = ctrl
+        assert(isinstance(frame, Frame))
+        assert(isinstance(ctrl, dTwistCtrl))
+
+        if self._cdof == []:
+            self._cdof = arange(6)
+        else:
+            assert(len(self._cdof) <= 6)
+            assert(all([cd < 6 for cd in self._cdof]))
+
+
+    def init(self, world, LQP_ctrl):
+        """
+        """
+        dTwistTask.init(self, world, LQP_ctrl)
+        self._ctrl.init(world, LQP_ctrl)
+
+
+    def _update_matrices(self, rstate, dt):
+        """
+        """
+        from arboris.homogeneousmatrix import adjoint, dAdjoint
+        H_0_f = self._frame.pose
+        HR_0_f = H_0_f.copy()
+        HR_0_f[0:3, 3] = 0
+        AdR_0_f = adjoint(HR_0_f)
+        T_f_0_f = self._frame.twist #WARNING: twist relative to its frame
+        T_f_0_0 = dot(AdR_0_f, T_f_0_f)
+        T_f_0_f_only_rot = T_f_0_f.copy()
+        T_f_0_f_only_rot[3:6] = 0.
+        dAdR_0_f = dAdjoint(AdR_0_f, T_f_0_f_only_rot)
+
+        J  = dot(AdR_0_f, self._frame.jacobian)
+        dJ = dot(AdR_0_f, self._frame.djacobian) + dot(dAdR_0_f, self._frame.jacobian)
+
+        gpos = self._frame.pose
+        gvel = T_f_0_0
+        cmd = self._ctrl.update(gpos, gvel, rstate, dt)
+
+        self._J[:]     = J[self._cdof, :]
+        self._dJ[:]    = dJ[self._cdof, :]
+        self._dVdes[:] = cmd[self._cdof]
+
+
+
+class MultiJointTask(dTwistTask):
     def __init__(self):
         pass
 
@@ -392,16 +473,19 @@ class WrenchTask(Task):
         self._f_chi = zeros(len(self._cdof))
 
         # some parameters that can be used, depend on task/cost/norm/formalism.
-        self._J = zeros((len(self._cdof), LQP_ctrl.ndof))
         self._S = zeros((len(self._cdof), LQP_ctrl.n_chi))
+        self._J = zeros((len(self._cdof), LQP_ctrl.ndof))
         self._inv_lambda = zeros((len(self._cdof), len(self._cdof)))
+        self._L_T        = zeros((len(self._cdof), len(self._cdof)))
 
 
     def _update_lambda(self, rstate, dt):
         """ Update lambda, the task mass matrix in operational space.
         """
+        from numpy.linalg import cholesky
         if self._norm == 'inv(lambda)':
             self._inv_lambda[:] = dot(self._J, dot(rstate['Minv'], self._J.T))
+            self._update_inv_lambda()
 
 
     def _update_E_f_cost(self, rstate, dt):
@@ -427,10 +511,8 @@ class WrenchTask(Task):
         if self._norm == 'normal':
             pass
         elif self._norm == 'inv(lambda)':
-            from numpy.linalg import cholesky
-            L_T = cholesky(self._inv_lambda).T
-            self._E_chi[:] = dot(L_T, self._E_chi[:])
-            self._f_chi[:] = dot(L_T, self._f_chi[:])
+            self._E_chi[:] = dot(self._L_T, self._E_chi[:])
+            self._f_chi[:] = dot(self._L_T, self._f_chi[:])
 
 
     def _update_E_f_formalism(self, rstate, dt):
@@ -456,8 +538,9 @@ class TorqueTask(WrenchTask):
 
         self._joint = joint
         self._ctrl = ctrl
-
+        assert(isinstance(joint, Joint))
         assert(isinstance(ctrl, WrenchCtrl))
+
         if self._cdof == []:
             self._cdof = arange(self._joint.ndof)
         else:
@@ -488,11 +571,60 @@ class TorqueTask(WrenchTask):
 
 
 
-class MultiTorqueTask(WrenchTask):
-    def __init__(self):
-        pass
-
 class ForceTask(WrenchTask):
+    """
+    """
+
+
+    def __init__(self, constraint, ctrl, *args, **kwargs):
+        """
+        """
+        WrenchTask.__init__(self, *args, **kwargs)
+
+        self._constraint = constraint
+        self._ctrl = ctrl
+        assert(isinstance(constraint, Constraint))
+        assert(isinstance(ctrl, WrenchCtrl))
+
+        if self._cdof == []:
+            self._cdof = arange(3)
+        else:
+            assert(len(self._cdof) <= 3)
+            assert(all([cd < 3 for cd in self._cdof]))
+
+
+    def init(self, world, LQP_ctrl):
+        """
+        """
+        WrenchTask.init(self, world, LQP_ctrl)
+        self._ctrl.init(world, LQP_ctrl)
+
+        S_wrench = zeros((len(self._cdof), LQP_ctrl.n_fc))
+        for i in range(len(LQP_ctrl.constraints)):
+            if self._constraint is LQP_ctrl.constraints[i]:
+                S_wrench[range(len(self._cdof)), (self._cdof+3*i)] = 1
+
+        self._S[:, :LQP_ctrl.n_fc] = S_wrench
+
+
+    def _update_matrices(self, rstate, dt):
+        """
+        """
+        if self._norm == 'inv(lambda)':
+            J = self._constraint.jacobian
+            if isinstance(self._constraint, BallAndSocketConstraint):
+                self._J[:] = J[self._cdof,:]
+            elif isinstance(self._constraint, PointContact):
+                self._J[:] = J[self._cdof,:]
+            elif isinstance(self._constraint, SoftFingerContact):
+                self._J[:] = J[(self._cdof+1):,:]
+
+        cmd = self._ctrl.update(rstate, dt)
+        self._Wdes[:] = cmd[self._cdof]
+
+
+
+class MultiTorqueTask(WrenchTask):
     def __init__(self):
         pass
 

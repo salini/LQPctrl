@@ -10,6 +10,9 @@ from numpy import zeros, asarray, dot
 
 
 def diff(val1, val2):
+    """
+    """
+    from misc import quatpos
     if ishomogeneousmatrix(asarray(val1)):
         v1 = quatpos(val1)
     else:

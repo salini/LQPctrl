@@ -63,8 +63,10 @@ def eq_contact_acc(Jc, dJc_gvel, n_problem, const_activity, formalism='dgvel chi
 
 
 
-def ineq_gforcemax(gforcemax, n_dof, n_fc, formalism='dgvel chi'):
-    """ inequality of gforcemax: - gforcemax <= gforce <= gforcemax
+def ineq_gforcemax(gforcemax, dgforcemax, dt, gforce_prec, n_dof, n_fc, formalism='dgvel chi'):
+    """ inequality of gforcemax: B_min <= gforce <= B_max
+    with B_min = max(-gforcemax, gforce_prec - dgforcemax*dt)
+         B_max = min( gforcemax, gforce_prec + dgforcemax*dt)
     
     for formalism 'dgvel chi':
     Rewrite:         |dgvel |
@@ -77,6 +79,13 @@ def ineq_gforcemax(gforcemax, n_dof, n_fc, formalism='dgvel chi'):
            [0,  I]|gforce|    |gforcemax|
            [0, -I]         <= |gforcemax|
     """
+    if dgforcemax:
+        B_min = fmax(-gforcemax, gforce_prec - dgforcemax*dt)
+        B_max = fmin( gforcemax, gforce_prec + dgforcemax*dt)
+    else:
+        B_min = -gforcemax
+        B_max =  gforcemax
+
     n_gforce = len(gforcemax)
     if formalism == 'dgvel chi':
         n_start = n_dof + n_fc
@@ -87,7 +96,7 @@ def ineq_gforcemax(gforcemax, n_dof, n_fc, formalism='dgvel chi'):
     G = zeros((2*n_gforce, n_problem))
     G[arange(n_gforce), arange(n_start, n_problem)] = 1
     G[arange(n_gforce, 2*n_gforce), arange(n_start, n_problem)] = -1
-    h = hstack( (gforcemax, gforcemax) )
+    h = hstack( (B_max, -B_min) )
     return G, h
 
 
@@ -143,8 +152,8 @@ def ineq_friction(mus, const_activity, n_pan, n_dof, n_problem, formalism='dgvel
 
 def ineq_joint_limits(qlim, vlim, gpos, gvel, hpos, hvel, n_problem, formalism='dgvel chi', Minv_Jchi_T=None, Minv_G_N=None):
     """ inequality of joint limits: B_min <= K.dgvel <= B_max
-    with B_min = max(2*(pos_lim_dn - pos -hpos.gvel)/hpos**2, (vel_lim_dn - gvel)/hvel)
-         B_max = min(2*(pos_lim_up - pos -hpos.gvel)/hpos**2, (vel_lim_up - gvel)/hvel)
+    with B_min = max(2*(pos_lim_dn - pos -hpos.gvel)/hpos**2, (-vel_max - gvel)/hvel)
+         B_max = min(2*(pos_lim_up - pos -hpos.gvel)/hpos**2, ( vel_max - gvel)/hvel)
 
     for formalism 'dgvel chi':
     Rewrite:         |dgvel |
@@ -159,8 +168,8 @@ def ineq_joint_limits(qlim, vlim, gpos, gvel, hpos, hvel, n_problem, formalism='
     """
     from numpy import fmin, fmax, nan, isnan
 
-    B_min = fmax((vlim[:,0] - gvel)/hvel, 2*(qlim[:,0] - gpos - hpos*gvel)/hpos**2)
-    B_max = fmin((vlim[:,1] - gvel)/hvel, 2*(qlim[:,1] - gpos - hpos*gvel)/hpos**2)
+    B_min = fmax((-vlim - gvel)/hvel, 2*(qlim[:,0] - gpos - hpos*gvel)/hpos**2)
+    B_max = fmin(( vlim - gvel)/hvel, 2*(qlim[:,1] - gpos - hpos*gvel)/hpos**2)
 
     selected_dof = [i for i in arange(len(B_min)) if not isnan(B_min[i])]
     n_lim_dof = len(selected_dof)

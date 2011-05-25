@@ -75,16 +75,19 @@ class LQPcontroller(Controller):
     """
 
     """
-    def __init__(self, gforcemax, qlim={}, vlim={}, tasks=[], events=[], data={}, options={}, solver_options={}, name=None):
+    def __init__(self, gforcemax, dgforcemax={}, qlim={}, vlim={}, tasks=[], events=[], data={}, options={}, solver_options={}, name=None):
         """ Initialize the instance of the LQP controller.
 
-        :param gforcemax: max gforce (N or N/m) {'joint_name': max_gforce}
+        :param gforcemax: max gforce (N or Nm) {'joint_name': max_gforce}
         :type gforcemax: dict
+
+        :param dgforcemax: max dgforce (N/s or Nm/s) {'joint_name': max_dgforce}
+        :type dgforcemax: dict
 
         :param qlim: position limits (rad) {'joint_name': (qmin,qmax)}
         :type qlim: dict
 
-        :param vlim: velocity limits (rad/s) {'joint_name': (vmin,vmax)}
+        :param vlim: velocity limits (rad/s) {'joint_name': vmax}
         :type vlim: dict
 
         :param events: a list of events (from LQPctrl.events)
@@ -108,7 +111,8 @@ class LQPcontroller(Controller):
         from arboris.core import NamedObjectsList
         #TODO: Make the assertion!!
         Controller.__init__(self, name=name)
-        self.gforcemax = gforcemax
+        self.gforcemax = dict(gforcemax)
+        self.dgforcemax = dict(dgforcemax)
         self.qlim = dict(qlim)
         self.vlim = dict(vlim)
         self.events = NamedObjectsList(events)
@@ -180,10 +184,9 @@ class LQPcontroller(Controller):
             for n, val in self.qlim.iteritems():
                 self._qlim[joints[n].dof, 0] = val[0]
                 self._qlim[joints[n].dof, 1] = val[1]
-            self._vlim = nan*zeros((self.ndof,2))
+            self._vlim = nan*zeros(self.ndof)
             for n, val in self.vlim.iteritems():
-                self._vlim[joints[n].dof, 0] = val[0]
-                self._vlim[joints[n].dof, 1] = val[1]
+                self._vlim[joints[n].dof] = val
 
 
     def _init_gforcemax(self):
@@ -192,11 +195,20 @@ class LQPcontroller(Controller):
         """
         from numpy import array, zeros, nan, isnan
         j = self.world.getjoints()
-        limits = nan*zeros(self.ndof)
+        limits  = nan*zeros(self.ndof)
         for n, val in self.gforcemax.iteritems():
             limits[j[n].dof] = val
-        selected_dof = [i for i in range(self.ndof) if limits[i] if not isnan(limits[i])]
-        self._gforcemax = limits[selected_dof]
+        selected_dof = [i for i in range(self.ndof) if not isnan(limits[i])]
+        self._gforcemax  = limits[selected_dof]
+
+        if self.dgforcemax:
+            dlimits = nan*zeros(self.ndof)
+            for n, val in self.dgforcemax.iteritems():
+                dlimits[j[n].dof] = self.dgforcemax[n]
+            self._dgforcemax = dlimits[selected_dof]
+        else:
+            self._dgforcemax = None
+
         self.S = zeros((self.ndof, len(selected_dof)))          ### S the actuation matrix ###
         self.S[selected_dof, range(len(selected_dof))] = 1
         self.n_gforce = len(selected_dof)
@@ -470,7 +482,7 @@ class LQPcontroller(Controller):
         equalities   = [(zeros((0, self.n_problem)), zeros(0))]
         inequalities = [(zeros((0, self.n_problem)), zeros(0))]
         
-        inequalities.append( ineq_gforcemax(self._gforcemax, self.ndof, self.n_fc, self.formalism) )
+        inequalities.append( ineq_gforcemax(self._gforcemax, self._dgforcemax, dt, self._gforce, self.ndof, self.n_fc, self.formalism) )
         if self.formalism == 'dgvel chi':
             M = rstate['M']
             Jchi_T = rstate['Jchi.T']

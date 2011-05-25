@@ -5,9 +5,12 @@
 
 import unittest
 
-from arboris.core import World
+from numpy import arange
+
+from arboris.core import World, simulate
 from arboris.robots.simplearm import add_simplearm
 
+from LQPctrl.LQPctrl   import LQPcontroller
 
 class Test_3R_LQPCtrl(unittest.TestCase):
 
@@ -25,7 +28,9 @@ class Test_3R_LQPCtrl(unittest.TestCase):
 
 
     def simulate(self, options):
-        pass
+        self.lqpc = LQPcontroller(self.gforcemax, tasks=self.tasks, options=options, solver_options={"show_progress":False})
+        self.w.register(self.lqpc)
+        simulate(self.w, arange(0, .04, .01), [])
 
 
     def test_normal_normal_dgvelchi(self):
@@ -59,5 +64,21 @@ class Test_3R_LQPCtrl(unittest.TestCase):
     def test_wrench_invlambda_chi(self):
         options = {'cost': 'wrench consistent', 'norm':'inv(lambda)', 'formalism':'chi'}
         self.simulate(options)
+
+
+
+from arboris.shapes import Plane, Point
+from arboris.constraints import SoftFingerContact
+
+class Test_3R_with_Plane_LQPCtrl(Test_3R_LQPCtrl):
+
+    def setUp(self):
+        Test_3R_LQPCtrl.setUp(self)
+
+        plane = Plane(self.w.ground, name="plane")
+        sphere = Point(self.w.getframes()['EndEffector'], "point")
+        self.w.register(SoftFingerContact((plane, sphere), 1.5, name="const"))
+        self.w.init()
+        self.const = self.w.getconstraints()
 
 

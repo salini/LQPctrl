@@ -5,47 +5,57 @@
 
 import unittest
 
-from numpy import arange, eye
+from numpy import eye
 
-from arboris.core import simulate
 
-from LQPctrl.LQPctrl   import LQPcontroller
-from LQPctrl.task      import JointTask, FrameTask, TorqueTask
+from LQPctrl.task      import JointTask, MultiJointTask, FrameTask, TorqueTask, MultiTorqueTask, ForceTask
 from LQPctrl.task_ctrl import KpCtrl   , ValueCtrl
 
-from common import Test_3R_LQPCtrl
-
-class Test_CostNormFormalism(Test_3R_LQPCtrl):
-
-    def simulate(self, options):
-        self.lqpc = LQPcontroller(self.gforcemax, tasks=self.tasks, options=options, solver_options={"show_progress":False})
-        self.w.register(self.lqpc)
-        simulate(self.w, arange(0, .04, .01), [])
+from common import Test_3R_LQPCtrl, Test_3R_with_Plane_LQPCtrl
 
 
 
 
-
-
-class Test_JointTask(Test_CostNormFormalism):
+class Test_JointTask(Test_3R_LQPCtrl):
 
     def setUp(self):
-        Test_CostNormFormalism.setUp(self)
+        Test_3R_LQPCtrl.setUp(self)
         self.tasks.append(JointTask(self.joints["Shoulder"], KpCtrl(0.1, 10), [], 1., 0, True))
 
 
-class Test_FrameTask(Test_CostNormFormalism):
+class Test_MultiJointTask(Test_3R_LQPCtrl):
 
     def setUp(self):
-        Test_CostNormFormalism.setUp(self)
+        Test_3R_LQPCtrl.setUp(self)
+        self.tasks.append(MultiJointTask(self.joints, KpCtrl([.1,.1,.1], 10), [], 1., 0, True))
+
+
+class Test_FrameTask(Test_3R_LQPCtrl):
+
+    def setUp(self):
+        Test_3R_LQPCtrl.setUp(self)
         self.tasks.append(FrameTask(self.frames["EndEffector"], KpCtrl(eye(4), 10), [],1.,0, True))
 
 
-class Test_TorqueTask(Test_CostNormFormalism):
+class Test_TorqueTask(Test_3R_LQPCtrl):
 
     def setUp(self):
-        Test_CostNormFormalism.setUp(self)
+        Test_3R_LQPCtrl.setUp(self)
         self.tasks.append(TorqueTask(self.joints["Shoulder"], ValueCtrl(-.1), [],1.,0, True))
+
+
+class Test_MultiTorqueTask(Test_3R_LQPCtrl):
+
+    def setUp(self):
+        Test_3R_LQPCtrl.setUp(self)
+        self.tasks.append(MultiTorqueTask(self.joints, ValueCtrl([.03,.02,.01]), [],1.,0, True))
+
+
+class Test_ForceTask(Test_3R_with_Plane_LQPCtrl):
+
+    def setUp(self):
+        Test_3R_with_Plane_LQPCtrl.setUp(self)
+        self.tasks.append(ForceTask(self.const['const'], ValueCtrl([0,0,0]), [],1.,0, True))
 
 
 
@@ -55,7 +65,7 @@ class Test_TorqueTask(Test_CostNormFormalism):
 
 def suite():
     tests_suite = []
-    for t in [Test_JointTask, Test_FrameTask, Test_TorqueTask]:
+    for t in [Test_JointTask, Test_MultiJointTask, Test_FrameTask, Test_TorqueTask, Test_MultiTorqueTask, Test_ForceTask]:
         tests_suite.append(unittest.TestLoader().loadTestsFromTestCase(t))
 
     return unittest.TestSuite(tests_suite)

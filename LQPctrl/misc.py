@@ -1,19 +1,15 @@
 #coding=utf-8
 #author=Joseph Salini
 #date=20 may 2011
-"""
-date 10th march 2010
-@author: Joseph Salini
-
-This module regroup several useful functions
-"""
 
 
 from numpy import array, zeros, sqrt, sign, dot, cross
-""" QUATERNIONS
 
-This part of the module regroup the functions to quaternion calculus
-"""
+################################################################################
+#
+# QUATERNIONS
+#
+################################################################################
 def quat2rot(real, img):
     """Convert a normalized quaternion to a rotation matrix
 
@@ -196,3 +192,69 @@ class quatpos:
         return 'quat: [{0},({1}, {2}, {3})] pos: ({4}, {5}, {6})'.format(
                 self.Q.real, self.Q.img[0], self.Q.img[1], self.Q.img[2],
                 self.p[0], self.p[1], self.p[2])
+
+
+
+
+################################################################################
+#
+# COM PROPERTIES COMPUTATION
+#
+################################################################################
+def body_com_properties(body, compute_J=True):
+    """ Compute the Center of Mass properties of a body.
+    """
+    from arboris.homogeneousmatrix import inv, iadjoint, dAdjoint
+    from arboris.massmatrix import principalframe
+
+    H_body_com = principalframe(body.mass)
+    H_0_com = dot(body.pose, H_body_com)
+    P_0_com = H_0_com[0:3, 3]
+
+    if compute_J:
+        H_com_com2 = inv(H_0_com)
+        H_com_com2[0:3,3] = 0.
+        Ad_com2_body = iadjoint(dot(H_body_com, H_com_com2))
+        J_com2 = dot(Ad_com2_body, body.jacobian)
+
+        T_com2_body = body.twist.copy()
+        T_com2_body[3:6] = 0.
+        dAd_com2_body = dAdjoint(Ad_com2_body, T_com2_body)
+        dJ_com2 = dot(Ad_com2_body, body.djacobian) + dot(dAd_com2_body, body.jacobian)
+        return P_0_com, J_com2[3:6,:], dJ_com2[3:6,:]
+    else:
+        return P_0_com
+
+
+def com_properties(bodies, compute_J=True):
+    """ Compute the Center of Mass properties of many bodies.
+    """
+    mass_sum = 0.
+    P_com_sum = 0.
+    J_com_sum = 0.
+    dJ_com_sum = 0.
+    for b in bodies:
+        m = b.mass[3,3]
+        if m >=1e-10:
+            mass_sum += m
+            result = body_com_properties(b, compute_J)
+            if compute_J:
+                P_com, J_com, dJ_com = result
+                P_com_sum += m*P_com
+                J_com_sum += m*J_com
+                dJ_com_sum = m*dJ_com
+            else:
+                P_com = result
+                P_com_sum += m*P_com
+
+    P_com = P_com_sum/mass_sum
+    J_com = J_com_sum/mass_sum
+    dJ_com = dJ_com_sum/mass_sum
+
+    if compute_J:
+        return P_com, J_com, dJ_com
+    else:
+        return P_com
+
+
+

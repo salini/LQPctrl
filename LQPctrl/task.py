@@ -3,7 +3,7 @@
 #date=21 april 2011
 
 from abc import ABCMeta, abstractmethod, abstractproperty
-from arboris.core import NamedObject, Joint, LinearConfigurationSpaceJoint, Frame, Constraint
+from arboris.core import NamedObject, Joint, LinearConfigurationSpaceJoint, Frame, Body, Constraint
 from arboris.constraints import BallAndSocketConstraint, PointContact, SoftFingerContact
 from numpy import dot, zeros, arange, array, append
 from numpy.linalg import norm
@@ -482,6 +482,91 @@ class MultiJointTask(dTwistTask):
             gvel = append(gvel, j.gvel)
         cmd = self._ctrl.update(gpos, gvel, rstate, dt)
         self._dVdes[:] = cmd[self._cdof_in_joints]
+
+
+
+class CoMTask(dTwistTask):
+    """ TODO.
+    """
+
+
+    def __init__(self, bodies, ctrl, *args, **kwargs):
+        """ TODO.
+        """
+        dTwistTask.__init__(self, *args, **kwargs)
+
+        self._bodies = bodies
+        self._ctrl = ctrl
+        for b in self._bodies:
+            assert(isinstance(b, Body))
+        assert(isinstance(ctrl, dTwistCtrl))
+
+        if self._cdof == []:
+            self._cdof = arange(3)
+        else:
+            assert(len(self._cdof) <= 3)
+            assert(all([cd < 3 for cd in self._cdof]))
+
+
+    def init(self, world, LQP_ctrl):
+        """
+        """
+        dTwistTask.init(self, world, LQP_ctrl)
+        self._ctrl.init(world, LQP_ctrl)
+
+
+    def _update_matrices(self, rstate, dt):
+        """
+        """
+        from misc import com_properties
+
+        com_gpos, J, dJ = com_properties(self._bodies)
+        com_gvel = dot(J, rstate['gvel'])
+        cmd = self._ctrl.update(com_gpos, com_gvel, rstate, dt)
+
+        self._J[:]     = J[self._cdof, :]
+        self._dJ[:]    = dJ[self._cdof, :]
+        self._dVdes[:] = cmd[self._cdof]
+
+
+
+class LQPCoMTask(CoMTask):
+    """ TODO.
+    """
+
+
+    def __init__(self, ctrl, *args, **kwargs):
+        """
+        """
+        CoMTask.__init__(self, [], ctrl, *args, **kwargs)
+
+
+    def init(self, world, LQP_ctrl):
+        """
+        """
+        CoMTask.init(self, world, LQP_ctrl)
+        self.lqp_bodies = LQP_ctrl.bodies
+
+
+    def _update_matrices(self, rstate, dt):
+        """
+        """
+        from misc import com_properties
+
+        if "Pcom" not in rstate:
+            com_gpos, J, dJ = com_properties(self.lqp_bodies)
+            com_gvel = dot(J, rstate['gvel'])
+            rstate['Pcom']  = com_gpos
+            rstate['Vcom']  = com_gvel
+            rstate['Jcom']  = J
+            rstate['dJcom'] = dJ
+
+        cmd = self._ctrl.update(rstate['Pcom'], rstate['Vcom'], rstate, dt)
+
+        self._J[:]     = rstate['Jcom'][self._cdof, :]
+        self._dJ[:]    = rstate['dJcom'][self._cdof, :]
+        self._dVdes[:] = cmd[self._cdof]
+
 
 
 

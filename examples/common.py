@@ -126,3 +126,13 @@ class RecordFramePosition(_Recorder):
         self._record.append(self.frame.pose[0:3,3].copy())
 
 
+class RecordCoMPosition(_Recorder):
+    def __init__(self, bodies):
+        _Recorder.__init__(self)
+        self.bodies = bodies
+
+    def update(self, dt):
+        from LQPctrl.misc import com_properties
+        self._record.append(com_properties(self.bodies, compute_J=False))
+
+

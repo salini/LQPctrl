@@ -9,6 +9,8 @@ from arboris.controllers import WeightController
 from arboris.shapes import Plane, Point
 from arboris.constraints import SoftFingerContact
 
+from numpy import array
+
 def create_3r_and_init(gpos=(0,0,0), gvel=(0,0,0), gravity=False):
     ## CREATE THE WORLD
     w = World()
@@ -34,10 +36,7 @@ def create_3r_and_init(gpos=(0,0,0), gvel=(0,0,0), gravity=False):
 
 def add_plane_and_point_on_arm(w, coeff):
     plane = Plane(w.ground, coeff, "plane")
-    w.register(plane)
-    eeframe = w.getframes()['EndEffector']
-    sphere = Point(eeframe, "point")
-    w.register(sphere)
+    sphere = Point(w.getframes()['EndEffector'], "point")
     
     w.register(SoftFingerContact((plane, sphere), 1.5, name="const"))
     
@@ -89,12 +88,15 @@ class _Recorder(Observer):
 
 
 class RecordJointPosition(_Recorder):
-    def __init__(self, joint):
+    def __init__(self, joints):
         _Recorder.__init__(self)
-        self.joint = joint
+        if not hasattr(joints, "__iter__"):
+            joints = [joints]
+        self.joints = joints
 
     def update(self, dt):
-        self._record.append(self.joint.gpos.copy())
+        rec = array([j.gpos.copy() for j in self.joints]).flatten()
+        self._record.append(rec)
 
 
 class RecordGforce(_Recorder):

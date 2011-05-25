@@ -8,7 +8,7 @@ import unittest
 from numpy import eye
 
 
-from LQPctrl.task      import JointTask, MultiJointTask, FrameTask, TorqueTask, MultiTorqueTask, ForceTask
+from LQPctrl.task      import JointTask, MultiJointTask, FrameTask, LQPCoMTask, TorqueTask, MultiTorqueTask, ForceTask
 from LQPctrl.task_ctrl import KpCtrl   , ValueCtrl
 
 from common import Test_3R_LQPCtrl, Test_3R_with_Plane_LQPCtrl
@@ -35,6 +35,13 @@ class Test_FrameTask(Test_3R_LQPCtrl):
     def setUp(self):
         Test_3R_LQPCtrl.setUp(self)
         self.tasks.append(FrameTask(self.frames["EndEffector"], KpCtrl(eye(4), 10), [],1.,0, True))
+
+
+class Test_LQPCoMTask(Test_3R_LQPCtrl):
+
+    def setUp(self):
+        Test_3R_LQPCtrl.setUp(self)
+        self.tasks.append(LQPCoMTask(KpCtrl([0,0,0], 10), [],1.,0, True))
 
 
 class Test_TorqueTask(Test_3R_LQPCtrl):
@@ -65,7 +72,7 @@ class Test_ForceTask(Test_3R_with_Plane_LQPCtrl):
 
 def suite():
     tests_suite = []
-    for t in [Test_JointTask, Test_MultiJointTask, Test_FrameTask, Test_TorqueTask, Test_MultiTorqueTask, Test_ForceTask]:
+    for t in [Test_JointTask, Test_MultiJointTask, Test_FrameTask, Test_LQPCoMTask, Test_TorqueTask, Test_MultiTorqueTask, Test_ForceTask]:
         tests_suite.append(unittest.TestLoader().loadTestsFromTestCase(t))
 
     return unittest.TestSuite(tests_suite)

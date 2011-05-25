@@ -3,9 +3,9 @@
 #date=21 april 2011
 
 from abc import ABCMeta, abstractmethod, abstractproperty
-from arboris.core import NamedObject, Joint, Frame, Constraint
+from arboris.core import NamedObject, Joint, LinearConfigurationSpaceJoint, Frame, Constraint
 from arboris.constraints import BallAndSocketConstraint, PointContact, SoftFingerContact
-from numpy import dot, zeros, arange
+from numpy import dot, zeros, arange, array, append
 from numpy.linalg import norm
 
 
@@ -155,10 +155,11 @@ class Task(NamedObject):
         except LinAlgError:
             u,s,vh = svd(self._J, full_matrices=False)
             r = sum(where(s>1e-3, 1, 0))
-            inv_lambda_reduce = dot(u.T ,dot(self._inv_lambda, u))
+            ur = u[:, :r]
+            inv_lambda_reduce = dot(ur.T ,dot(self._inv_lambda, ur))
             L = cholesky(inv_lambda_reduce)
             self._L_T[:] = 0.
-            self._L_T[:r,:] = dot(u, L).T
+            self._L_T[:r,:] = dot(ur, L).T
 
 
     def _update_inv_inv_lambda(self):
@@ -432,8 +433,55 @@ class FrameTask(dTwistTask):
 
 
 class MultiJointTask(dTwistTask):
-    def __init__(self):
-        pass
+    """ TODO.
+    """
+
+
+    def __init__(self, joints, ctrl, *args, **kwargs):
+        """ TODO.
+        """
+        dTwistTask.__init__(self, *args, **kwargs)
+
+        self._joints = joints
+        self._ctrl = ctrl
+
+        assert(hasattr(joints, "__iter__"))
+        for j in joints:
+            assert(isinstance(j, LinearConfigurationSpaceJoint))
+        assert(isinstance(ctrl, dTwistCtrl))
+
+        joints_ndof = sum([j.ndof for j in self._joints])
+        if self._cdof == []:
+            self._cdof = arange(joints_ndof)
+        else:
+            assert(len(self._cdof) <= joints_ndof)
+            assert(all([cd < joints_ndof for cd in self._cdof]))
+        self._cdof_in_joints = list(self._cdof)
+
+
+    def init(self, world, LQP_ctrl):
+        """
+        """
+        dTwistTask.init(self, world, LQP_ctrl)
+        self._ctrl.init(world, LQP_ctrl)
+
+        joints_dofs_in_world = array([],dtype=int)
+        for j in self._joints:
+            joints_dofs_in_world = append(joints_dofs_in_world, arange(self._ndof)[j.dof])
+        self._cdof = array(joints_dofs_in_world)[self._cdof_in_joints]
+        self._J[arange(len(self._cdof)), self._cdof] = 1
+
+
+    def _update_matrices(self, rstate, dt):
+        """
+        """
+        gpos = zeros(0)
+        gvel = zeros(0)
+        for j in self._joints:
+            gpos = append(gpos, j.gpos)
+            gvel = append(gvel, j.gvel)
+        cmd = self._ctrl.update(gpos, gvel, rstate, dt)
+        self._dVdes[:] = cmd[self._cdof_in_joints]
 
 
 
@@ -610,14 +658,14 @@ class ForceTask(WrenchTask):
     def _update_matrices(self, rstate, dt):
         """
         """
-        if self._norm == 'inv(lambda)':
+        if 1:#self._norm == 'inv(lambda)':
             J = self._constraint.jacobian
             if isinstance(self._constraint, BallAndSocketConstraint):
                 self._J[:] = J[self._cdof,:]
+            elif isinstance(self._constraint, SoftFingerContact):
+                self._J[:] = J[(self._cdof+1),:]
             elif isinstance(self._constraint, PointContact):
                 self._J[:] = J[self._cdof,:]
-            elif isinstance(self._constraint, SoftFingerContact):
-                self._J[:] = J[(self._cdof+1):,:]
 
         cmd = self._ctrl.update(rstate, dt)
         self._Wdes[:] = cmd[self._cdof]
@@ -625,11 +673,53 @@ class ForceTask(WrenchTask):
 
 
 class MultiTorqueTask(WrenchTask):
-    def __init__(self):
-        pass
+    """ TODO
+    """
 
 
+    def __init__(self, joints, ctrl, *args, **kwargs):
+        """
+        """
+        WrenchTask.__init__(self, *args, **kwargs)
 
+        self._joints = joints
+        self._ctrl = ctrl
+
+        assert(hasattr(joints, "__iter__"))
+        for j in joints:
+            assert(isinstance(j, LinearConfigurationSpaceJoint))
+        assert(isinstance(ctrl, WrenchCtrl))
+
+        joints_ndof = sum([j.ndof for j in self._joints])
+        if self._cdof == []:
+            self._cdof = arange(joints_ndof)
+        else:
+            assert(len(self._cdof) <= joints_ndof)
+            assert(all([cd < joints_ndof for cd in self._cdof]))
+        self._cdof_in_joints = list(self._cdof)
+
+
+    def init(self, world, LQP_ctrl):
+        """
+        """
+        WrenchTask.init(self, world, LQP_ctrl)
+        self._ctrl.init(world, LQP_ctrl)
+
+        joints_dofs_in_world = array([],dtype=int)
+        for j in self._joints:
+            joints_dofs_in_world = append(joints_dofs_in_world, arange(self._ndof)[j.dof])
+        self._cdof = array(joints_dofs_in_world)[self._cdof_in_joints]
+        self._J[arange(len(self._cdof)), self._cdof] = 1
+
+        S_gforce = LQP_ctrl.S[self._cdof, : ]
+        self._S[:, LQP_ctrl.n_fc: ] = S_gforce
+
+
+    def _update_matrices(self, rstate, dt):
+        """
+        """
+        cmd = self._ctrl.update(rstate, dt)
+        self._Wdes[:] = cmd[self._cdof_in_joints]
 
 
 

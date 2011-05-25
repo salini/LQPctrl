@@ -12,25 +12,33 @@ from arboris.robots.simplearm import add_simplearm
 
 from LQPctrl.LQPctrl   import LQPcontroller
 
-class Test_3R_LQPCtrl(unittest.TestCase):
+class Test_simple_3R(unittest.TestCase):
 
     def setUp(self):
         self.w = World()
         add_simplearm(self.w)
         self.joints = self.w.getjoints()
         self.frames = self.w.getframes()
-        self.joints["Shoulder"].gpos[:] = .5
-        self.joints["Elbow"].gpos[:]    = .5
-        self.joints["Wrist"].gpos[:]    = .5
         self.w.update_dynamic()
-        self.gforcemax = {"Shoulder":10,"Elbow":5,"Wrist":2}
-        self.tasks = []
 
 
     def simulate(self, options):
         self.lqpc = LQPcontroller(self.gforcemax, tasks=self.tasks, options=options, solver_options={"show_progress":False})
         self.w.register(self.lqpc)
         simulate(self.w, arange(0, .04, .01), [])
+
+
+
+class Test_3R_LQPCtrl(Test_simple_3R):
+
+    def setUp(self):
+        Test_simple_3R.setUp(self)
+
+        self.joints["Shoulder"].gpos[:] = .5
+        self.joints["Elbow"].gpos[:]    = .5
+        self.joints["Wrist"].gpos[:]    = .5
+        self.gforcemax = {"Shoulder":10,"Elbow":5,"Wrist":2}
+        self.tasks = []
 
 
     def test_normal_normal_dgvelchi(self):

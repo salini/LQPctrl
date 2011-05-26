@@ -65,7 +65,7 @@ print_lqp_perf(lqpc)
 
 import pylab as pl
 pl.plot(obs[-1].get_record())
-pl.ylim([0,.15])
+pl.ylim([0,.05])
 pl.ylabel("Gforce (N.m)")
 pl.xlabel("step")
 pl.title("Shoulder Joint Evolution")

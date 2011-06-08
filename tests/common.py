@@ -49,12 +49,28 @@ class Test_3R_LQPCtrl(Test_simple_3R):
         options = {'cost': 'wrench consistent', 'norm':'normal', 'formalism':'dgvel chi'}
         self.simulate(options)
 
+    def test_dtwist_normal_dgvelchi(self):
+        options = {'cost': 'dtwist consistent', 'norm':'normal', 'formalism':'dgvel chi'}
+        self.simulate(options)
+
+    def test_am_normal_dgvelchi(self):
+        options = {'cost': 'a/m', 'norm':'normal', 'formalism':'dgvel chi'}
+        self.simulate(options)
+
     def test_normal_invlambda_dgvelchi(self):
         options = {'cost': 'normal', 'norm':'inv(lambda)', 'formalism':'dgvel chi'}
         self.simulate(options)
 
     def test_wrench_invlambda_dgvelchi(self):
         options = {'cost': 'wrench consistent', 'norm':'inv(lambda)', 'formalism':'dgvel chi'}
+        self.simulate(options)
+
+    def test_dtwist_invlambda_dgvelchi(self):
+        options = {'cost': 'dtwist consistent', 'norm':'inv(lambda)', 'formalism':'dgvel chi'}
+        self.simulate(options)
+
+    def test_am_invlambda_dgvelchi(self):
+        options = {'cost': 'a/m', 'norm':'inv(lambda)', 'formalism':'dgvel chi'}
         self.simulate(options)
 
     def test_normal_normal_chi(self):
@@ -65,12 +81,28 @@ class Test_3R_LQPCtrl(Test_simple_3R):
         options = {'cost': 'wrench consistent', 'norm':'normal', 'formalism':'chi'}
         self.simulate(options)
 
+    def test_dtwist_normal_chi(self):
+        options = {'cost': 'dtwist consistent', 'norm':'normal', 'formalism':'chi'}
+        self.simulate(options)
+
+    def test_am_normal_chi(self):
+        options = {'cost': 'a/m', 'norm':'normal', 'formalism':'chi'}
+        self.simulate(options)
+
     def test_normal_invlambda_chi(self):
         options = {'cost': 'normal', 'norm':'inv(lambda)', 'formalism':'chi'}
         self.simulate(options)
 
     def test_wrench_invlambda_chi(self):
         options = {'cost': 'wrench consistent', 'norm':'inv(lambda)', 'formalism':'chi'}
+        self.simulate(options)
+
+    def test_dtwist_invlambda_chi(self):
+        options = {'cost': 'dtwist consistent', 'norm':'inv(lambda)', 'formalism':'chi'}
+        self.simulate(options)
+
+    def test_am_invlambda_chi(self):
+        options = {'cost': 'a/m', 'norm':'inv(lambda)', 'formalism':'chi'}
         self.simulate(options)
 
 

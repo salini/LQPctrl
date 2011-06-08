@@ -84,9 +84,16 @@ class Task(NamedObject):
         self._f = zeros(len(self._cdof))
         self._error = 0.
 
-        self._inv_lambda = zeros((len(self._cdof), len(self._cdof)))
-        self._lambda     = zeros((len(self._cdof), len(self._cdof)))
-        self._L_T        = zeros((len(self._cdof), len(self._cdof)))
+        self._inv_lambda    = zeros((len(self._cdof), len(self._cdof)))
+        self._lambda        = zeros((len(self._cdof), len(self._cdof)))
+        self._inv_ellipsoid = zeros((len(self._cdof), len(self._cdof)))
+        self._ellipsoid     = zeros((len(self._cdof), len(self._cdof)))
+        self._L_T           = zeros((len(self._cdof), len(self._cdof)))
+
+        self._inv_lambda_is_already_computed    = False
+        self._lambda_is_already_computed        = False
+        self._inv_ellipsoid_is_already_computed = False
+        self._ellipsoid_is_already_computed     = False
 
 
     def update(self, rstate, dt):
@@ -131,45 +138,77 @@ class Task(NamedObject):
         second : E & f, depend on norm,
         finally: E & f, depend on formalism.
         """
-        
-        self._update_lambda(rstate, dt)
+        self._raz_flags()
         self._update_E_f_cost(rstate, dt)
         self._update_E_f_norm(rstate, dt)
         self._update_E_f_formalism(rstate, dt)
 
 
-    @abstractmethod
-    def _update_lambda(self, rstate, dt):
+    def _raz_flags(self):
         """ Update lambda, the task mass matrix in operational space.
         """
-        pass
+        self._inv_lambda_is_already_computed    = False
+        self._lambda_is_already_computed        = False
+        self._inv_ellipsoid_is_already_computed = False
+        self._ellipsoid_is_already_computed     = False
 
 
-    def _update_inv_lambda(self):
+    def _update_inv_lambda(self, rstate, dt):
         """
         """
-        from numpy import diag, sum, where
-        from numpy.linalg import cholesky, svd, LinAlgError
-        try:
-            self._L_T[:] = cholesky(self._inv_lambda).T
-        except LinAlgError:
-            u,s,vh = svd(self._J, full_matrices=False)
-            r = sum(where(s>1e-3, 1, 0))
-            ur = u[:, :r]
-            inv_lambda_reduce = dot(ur.T ,dot(self._inv_lambda, ur))
-            L = cholesky(inv_lambda_reduce)
-            self._L_T[:] = 0.
-            self._L_T[:r,:] = dot(ur, L).T
+        if not self._inv_lambda_is_already_computed:
+            self._inv_lambda_is_already_computed = True
+            self._inv_lambda[:] = dot(self._J, dot(rstate['Minv'], self._J.T))
+            self._inv_lambda[:] = self._inv_lambda / norm(self._inv_lambda)
 
 
-    def _update_inv_inv_lambda(self):
+    def _update_lambda(self, rstate, dt):
         """
         """
         from numpy.linalg import inv, pinv, LinAlgError
+
+        if not self._lambda_is_already_computed:
+            self._lambda_is_already_computed = True
+            self._update_inv_lambda(rstate, dt)
+            try:
+                self._lambda[:] = inv(self._inv_lambda)
+            except LinAlgError:
+                self._lambda[:] = pinv(self._inv_lambda)
+
+
+    def _update_inv_ellipsoid(self, rstate, dt):
+        """
+        """
+        if not self._inv_ellipsoid_is_already_computed:
+            self._inv_ellipsoid_is_already_computed = True
+            self._inv_ellipsoid[:] = dot(self._J, dot(rstate['Minv*Minv'], self._J.T))
+            self._inv_ellipsoid[:] = self._inv_ellipsoid / norm(self._inv_ellipsoid)
+
+
+    def _update_ellipsoid(self, rstate, dt):
+        """
+        """
+        from numpy.linalg import inv, pinv, LinAlgError
+
+        if not self._ellipsoid_is_already_computed:
+            self._ellipsoid_is_already_computed = True
+            self._update_inv_ellipsoid()
+            try:
+                self._ellipsoid[:] = inv(self._inv_ellipsoid)
+            except LinAlgError:
+                self._ellipsoid[:] = pinv(self._inv_ellipsoid)
+
+
+    def _update_L_T_for_normalization(self, norm_matrix):
+        """
+        """
+        from numpy import diag, sqrt
+        from numpy.linalg import cholesky, svd, LinAlgError
         try:
-            self._lambda[:] = inv(self._inv_lambda)
+            self._L_T[:] = cholesky(norm_matrix).T
         except LinAlgError:
-            self._lambda[:] = pinv(self._inv_lambda)
+            u,s,vh = svd(norm_matrix, full_matrices=False)
+            self._L_T[:] = dot(diag(sqrt(s)), u.T)
 
 
     @abstractmethod
@@ -223,6 +262,8 @@ class Task(NamedObject):
         return self._error
 
 
+
+
 ################################################################################
 #
 # dTwist Tasks
@@ -253,25 +294,12 @@ class dTwistTask(Task):
         Task.init(self, world, LQP_ctrl)
 
         self._ndof = LQP_ctrl.ndof
+        self._J  = zeros((len(self._cdof), LQP_ctrl.ndof))
+        self._dJ = zeros((len(self._cdof), LQP_ctrl.ndof))
         self._dVdes = zeros(len(self._cdof))
 
         self._E_dgvel = zeros((len(self._cdof), LQP_ctrl.ndof))
         self._f_dgvel = zeros(len(self._cdof))
-
-        # some parameters that can be used, depend on task/cost/norm/formalism.
-        self._J  = zeros((len(self._cdof), LQP_ctrl.ndof))
-        self._dJ = zeros((len(self._cdof), LQP_ctrl.ndof))
-
-
-    def _update_lambda(self, rstate, dt):
-        """ Update lambda, the task mass matrix in operational space.
-        """
-        if self._norm == 'inv(lambda)' or self._cost == 'wrench consistent':
-            self._inv_lambda[:] = dot(self._J, dot(rstate['Minv'], self._J.T))
-            if self._norm == 'inv(lambda)':
-                self._update_inv_lambda()
-            if self._cost == 'wrench consistent':
-                self._update_inv_inv_lambda()
 
 
     def _update_E_f_cost(self, rstate, dt):
@@ -288,9 +316,20 @@ class dTwistTask(Task):
         if self._cost == 'normal':
             self._E_dgvel[:] = self._J
             self._f_dgvel[:] = dot(self._dJ, rstate['gvel']) - self._dVdes
+
         elif self._cost == 'wrench consistent':
+            self._update_lambda(rstate, dt)
             self._E_dgvel[:] = dot(self._lambda, self._J)
             self._f_dgvel[:] = dot(self._lambda, dot(self._dJ, rstate['gvel']) - self._dVdes)
+
+        elif self._cost == 'dtwist consistent':
+            self._E_dgvel[:] = self._J
+            self._f_dgvel[:] = dot(self._dJ, rstate['gvel']) - self._dVdes
+
+        elif self._cost == 'a/m':
+            self._update_inv_lambda(rstate, dt)
+            self._E_dgvel[:] = dot(self._inv_lambda, self._J)
+            self._f_dgvel[:] = dot(self._inv_lambda, dot(self._dJ, rstate['gvel']) - self._dVdes)
 
 
     def _update_E_f_norm(self, rstate, dt):
@@ -308,10 +347,18 @@ class dTwistTask(Task):
         So E_dgvel = L'.E_dgvel and f = L'.f.
         """
         if self._norm == 'normal':
-            pass
+            return
+
         elif self._norm == 'inv(lambda)':
-            self._E_dgvel[:] = dot(self._L_T, self._E_dgvel[:])
-            self._f_dgvel[:] = dot(self._L_T, self._f_dgvel[:])
+            self._update_inv_lambda(rstate, dt)
+            self._update_L_T_for_normalization(self._inv_lambda)
+
+        elif self._norm == 'inv(ellipsoid)':
+            self._update_inv_ellipsoid(rstate, dt)
+            self._update_L_T_for_normalization(self._inv_ellipsoid)
+
+        self._E_dgvel[:] = dot(self._L_T, self._E_dgvel[:])
+        self._f_dgvel[:] = dot(self._L_T, self._f_dgvel[:])
 
 
     def _update_E_f_formalism(self, rstate, dt):
@@ -600,25 +647,12 @@ class WrenchTask(Task):
         Task.init(self, world, LQP_ctrl)
 
         self._ndof = LQP_ctrl.ndof
+        self._S = zeros((len(self._cdof), LQP_ctrl.n_chi))
+        self._J = zeros((len(self._cdof), LQP_ctrl.ndof))
         self._Wdes = zeros(len(self._cdof))
 
         self._E_chi = zeros((len(self._cdof), LQP_ctrl.n_chi))
         self._f_chi = zeros(len(self._cdof))
-
-        # some parameters that can be used, depend on task/cost/norm/formalism.
-        self._S = zeros((len(self._cdof), LQP_ctrl.n_chi))
-        self._J = zeros((len(self._cdof), LQP_ctrl.ndof))
-        self._inv_lambda = zeros((len(self._cdof), len(self._cdof)))
-        self._L_T        = zeros((len(self._cdof), len(self._cdof)))
-
-
-    def _update_lambda(self, rstate, dt):
-        """ Update lambda, the task mass matrix in operational space.
-        """
-        from numpy.linalg import cholesky
-        if self._norm == 'inv(lambda)':
-            self._inv_lambda[:] = dot(self._J, dot(rstate['Minv'], self._J.T))
-            self._update_inv_lambda()
 
 
     def _update_E_f_cost(self, rstate, dt):
@@ -633,19 +667,39 @@ class WrenchTask(Task):
         if self._cost == 'normal':
             self._E_chi[:] = self._S
             self._f_chi[:] = - self._Wdes
+
         elif self._cost == 'wrench consistent':
             self._E_chi[:] = self._S
             self._f_chi[:] = - self._Wdes
+
+        elif self._cost == 'dtwist consistent':
+            self._update_inv_lambda(rstate, dt)
+            self._E_chi[:] = dot(self._inv_lambda, self._S)
+            self._f_chi[:] = dot(self._inv_lambda, - self._Wdes)
+
+        elif self._cost == 'a/m':
+            self._update_inv_lambda(rstate, dt)
+            inv_lambda2 = dot(self._inv_lambda, self._inv_lambda)
+            self._E_chi[:] = dot(inv_lambda2, self._S)
+            self._f_chi[:] = dot(inv_lambda2, - self._Wdes)
 
 
     def _update_E_f_norm(self, rstate, dt):
         """
         """
         if self._norm == 'normal':
-            pass
+            return
+
         elif self._norm == 'inv(lambda)':
-            self._E_chi[:] = dot(self._L_T, self._E_chi[:])
-            self._f_chi[:] = dot(self._L_T, self._f_chi[:])
+            self._update_inv_lambda(rstate, dt)
+            self._update_L_T_for_normalization(self._inv_lambda)
+
+        elif self._norm == 'inv(ellipsoid)':
+            self._update_inv_ellipsoid(rstate, dt)
+            self._update_L_T_for_normalization(self._inv_ellipsoid)
+            
+        self._E_chi[:] = dot(self._L_T, self._E_chi[:])
+        self._f_chi[:] = dot(self._L_T, self._f_chi[:])
 
 
     def _update_E_f_formalism(self, rstate, dt):
@@ -657,6 +711,7 @@ class WrenchTask(Task):
         elif self._formalism == 'chi':
             self._E[:] = self._E_chi
             self._f[:] = self._f_chi
+
 
 
 class TorqueTask(WrenchTask):

@@ -9,6 +9,7 @@
 
 from arboris.core import Controller
 from numpy import zeros, hstack, vstack, dot
+from time import time as _time
 
 
 def lqpc_data(data={}):
@@ -290,59 +291,45 @@ class LQPcontroller(Controller):
         * return the computed gforce of the problem
 
         """
-        from time import time as _time
         from solver import solve
 
-        _performance = {}
+        self._rec_performance = {}
         _tstart = _time()
 
-        _t0 = _time() ### get robot state ###
         rstate = self._update_robot_state(dt)
-        _performance['update robot state'] = _time() - _t0
-
-        _t0 = _time() ### update tasks and events ###
-        for e in self.events:
-            e.update(rstate, dt)
-        for t in self.tasks:
-            t.update(rstate, dt)
-        _performance['update tasks and events'] = _time() - _t0
+        self._update_tasks_and_events(rstate, dt)
 
         if self.world._current_time > 0 and len(self.tasks)>0:
 
-            _t0 = _time() ### get LQP constraints from world configuration ###
             A, b, G, h = self._get_constraints(rstate, dt)
-            _performance['get constraints'] = _time() - _t0
-
-            _t0 = _time() ### sort the tasks by level ###
             sorted_tasks = self._get_sorted_tasks()
-            _performance['sort tasks'] = _time() - _t0
 
             i=0
-            _performance['get cost function'] = []
-            _performance['solve'] = []
-            _performance['constrain next level'] = []
+            self._rec_performance['get cost function'] = []
+            self._rec_performance['solve'] = []
+            self._rec_performance['constrain next level'] = []
             for tasks in sorted_tasks:
 
                 _t0 = _time() ### compute cost function ###
                 E_tasks, f_tasks = self._get_objective(tasks, dt)
                 E = vstack((self.E_base, E_tasks))
                 f = hstack((self.f_base, f_tasks))
-                _performance['get cost function'].append(_time() - _t0)
+                self._rec_performance['get cost function'].append(_time() - _t0)
 
                 _t0 = _time() ### solve the LQP ###
                 self.X_solution[:] = solve(E, f, G, h, A, b, self.options['solver'])
-                _performance['solve'].append(_time() - _t0)
+                self._rec_performance['solve'].append(_time() - _t0)
 
                 _t0 = _time() ### concatenate solution with constraints to constrain next level ###
                 if i<len(sorted_tasks)-1:
                     A = vstack((A, E_tasks))
                     b = hstack((b, dot(E_tasks, self.X_solution)))
                     i+=1
-                _performance['constrain next level'].append(_time() - _t0)
+                self._rec_performance['constrain next level'].append(_time() - _t0)
 
             self._update_gforce_from_optimization(self.X_solution)
-            _performance['total'] = _time() - _tstart
-            self._performance.append(_performance)
+            self._rec_performance['total'] = _time() - _tstart
+            self._performance.append(dict(self._rec_performance))
         else:
             self._gforce[:] = 0.
 
@@ -368,7 +355,8 @@ class LQPcontroller(Controller):
         from arboris.core import LinearConfigurationSpaceJoint
         from numpy import nan
         from numpy.linalg import inv
-        
+        _start_time = _time() ### get robot state ###
+
         linear_gpos = nan*zeros(self.ndof)
         for j in self.world.getjoints():
             if isinstance(j, LinearConfigurationSpaceJoint):
@@ -391,12 +379,17 @@ class LQPcontroller(Controller):
         rstate['g-n'] = gravity - dot(self.world.nleffects, self.world.gvel)
         rstate['dJc.gvel'] = dot(self.dJc, self.world.gvel)
 
-        if self.cost == 'wrench consistent':
+        if self.cost in ['wrench consistent', 'dtwist consistent', 'a/m']: #TODO: maybe find better?!?
             rstate['Minv'] = inv(self.world.mass)
 
-        if self.norm == 'inv(lambda)':
+        if self.norm in ['inv(lambda)']:
             if 'Minv' not in rstate:
                 rstate['Minv'] = inv(self.world.mass)
+
+        if self.norm in ['inv(ellipsoid)']:
+            if 'Minv' not in rstate:
+                rstate['Minv'] = inv(self.world.mass)
+            rstate['Minv*Minv'] = dot(rstate['Minv'], rstate['Minv'])
 
         if self.formalism == 'chi':
             if 'Minv' not in rstate:
@@ -404,11 +397,23 @@ class LQPcontroller(Controller):
             rstate['Minv(Jchi.T)'] = dot(rstate['Minv'], rstate['Jchi.T'])
             rstate['Minv(g-n)'] = dot(rstate['Minv'], rstate['g-n'])
 
+        self._rec_performance['update robot state'] = _time() - _start_time
         return rstate
 
 
+    def _update_tasks_and_events(self, rstate, dt):
+        """ Update the tasks and events registered in the LQP.
+        """
+        _start_time = _time() ### update tasks and events ###
+        for e in self.events:
+            e.update(rstate, dt)
+        for t in self.tasks:
+            t.update(rstate, dt)
+        self._rec_performance['update tasks and events'] = _time() - _start_time
+
+
     def _update_Jc(self):
-        """Extract the Jacobian and dJacobian matrix of contact points.
+        """ Extract the Jacobian and dJacobian matrix of contact points.
 
         """
         from arboris.constraints import PointContact, BallAndSocketConstraint
@@ -473,6 +478,7 @@ class LQPcontroller(Controller):
         """
         from numpy import max
         from constraints import eq_motion, eq_contact_acc, ineq_gforcemax, ineq_joint_limits, ineq_friction
+        _start_time = _time() ### get LQP constraints from world configuration ###
 
         Minv_Jchi_T = rstate.get('Minv(Jchi.T)') # these functions return None
         Minv_G_N = rstate.get('Minv(g-n)') # if Minv_Jchi_T & Minv_G_N not in rstate (not computed)
@@ -507,6 +513,7 @@ class LQPcontroller(Controller):
         A, b = vstack(eq_A), hstack(eq_b)
         G, h = vstack(ineq_G), hstack(ineq_h)
 
+        self._rec_performance['get constraints'] = _time() - _start_time
         return A, b, G, h
 
 
@@ -517,6 +524,8 @@ class LQPcontroller(Controller):
         :rtype: list(LQPctrl.tasks)
 
         """
+        _start_time = _time() ### sort the tasks by level ###
+
         unsorted_tasks = list(self.tasks)
         sorted_tasks = []
         while unsorted_tasks:
@@ -533,6 +542,8 @@ class LQPcontroller(Controller):
                     break
             if not is_placed:
                 sorted_tasks.append([task])
+
+        self._rec_performance['sort tasks'] = _time() - _start_time
         return sorted_tasks
 
 

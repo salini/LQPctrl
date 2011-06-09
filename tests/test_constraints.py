@@ -15,6 +15,9 @@ from arboris.shapes import Plane, Point
 from arboris.constraints import SoftFingerContact
 
 from LQPctrl.LQPctrl   import LQPcontroller
+from LQPctrl.task      import TorqueTask
+from LQPctrl.task_ctrl import ValueCtrl
+
 
 class Test_constraints(Test_simple_3R):
 
@@ -24,20 +27,21 @@ class Test_constraints(Test_simple_3R):
         self.joints["Shoulder"].gpos[:] = pi/2.
         self.joints["Elbow"].gpos[:]    = pi/6.
         self.joints["Wrist"].gpos[:]    = pi/3.
+        self.tasks = [TorqueTask(self.joints["Shoulder"], ValueCtrl(.1))]
         self.gforcemax = {"Shoulder":10,"Elbow":5,"Wrist":2}
         self.dgforcemax = {}
         self.qlim = {}
         self.vlim = {}
         self.options = {}
 
-        plane = Plane(self.w.ground, (0,1,0,-.4), name="plane")
-        sphere = Point(self.w.getframes()['EndEffector'], "point")
-        self.w.register(SoftFingerContact((plane, sphere), 1.5, name="const"))
-        self.w.init()
-        self.const = self.w.getconstraints()
+#        plane = Plane(self.w.ground, (0,1,0,-.4), name="plane")
+#        sphere = Point(self.w.getframes()['EndEffector'], "point")
+#        self.w.register(SoftFingerContact((plane, sphere), 1.5, name="const"))
+#        self.w.init()
+#        self.const = self.w.getconstraints()
 
     def simulate(self):
-        self.lqpc = LQPcontroller(self.gforcemax, self.dgforcemax, qlim=self.qlim, vlim=self.vlim, tasks=[], options=self.options, solver_options={"show_progress":False})
+        self.lqpc = LQPcontroller(self.gforcemax, self.dgforcemax, qlim=self.qlim, vlim=self.vlim, tasks=self.tasks, options=self.options, solver_options={"show_progress":False})
         self.w.register(self.lqpc)
         simulate(self.w, arange(0, .04, .01), [])
 
@@ -86,13 +90,25 @@ class Test_dgforcemax2(Test_constraints):
         self.gforcemax  = {"Elbow":5,"Wrist":2}
         self.dgforcemax = {"Shoulder":10,"Elbow":5}
 
+class Test_dgforcemax3(Test_constraints):
 
+    def setUp(self):
+        Test_constraints.setUp(self)
+        self.gforcemax  = {"Elbow":5,"Wrist":2}
+        self.dgforcemax = {"Elbow":5}
+
+class Test_dgforcemax4(Test_constraints):
+
+    def setUp(self):
+        Test_constraints.setUp(self)
+        self.gforcemax  = {"Elbow":5,"Wrist":2}
+        self.dgforcemax = {"Shoulder":10}
 
 
 
 def suite():
     tests_suite = []
-    for t in [Test_qlim, Test_vlim, Test_qlim_vlim, Test_dgforcemax1, Test_dgforcemax2]:
+    for t in [Test_qlim, Test_vlim, Test_qlim_vlim, Test_dgforcemax1, Test_dgforcemax2, Test_dgforcemax3, Test_dgforcemax4]:
         tests_suite.append(unittest.TestLoader().loadTestsFromTestCase(t))
 
     return unittest.TestSuite(tests_suite)

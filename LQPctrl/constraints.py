@@ -2,7 +2,7 @@
 #author=Joseph Salini
 #date=21 april 2011
 
-from numpy import zeros, array, arange, dot, hstack, vstack
+from numpy import zeros, array, arange, dot, hstack, vstack, fmin, fmax, nan, isnan
 
 def eq_motion(M, Jchi_T, G_N):
     """ equation of motion: M.dgvel + N = S.gforce + Jc_T.fc + G
@@ -79,7 +79,7 @@ def ineq_gforcemax(gforcemax, dgforcemax, dt, gforce_prec, n_dof, n_fc, formalis
            [0,  I]|gforce|    |gforcemax|
            [0, -I]         <= |gforcemax|
     """
-    if dgforcemax:
+    if dgforcemax is not None:
         B_min = fmax(-gforcemax, gforce_prec - dgforcemax*dt)
         B_max = fmin( gforcemax, gforce_prec + dgforcemax*dt)
     else:
@@ -166,8 +166,6 @@ def ineq_joint_limits(qlim, vlim, gpos, gvel, hpos, hvel, n_problem, formalism='
            [ K]Minv[Jc_T, S]|gforce|    | B_max| - [ K]Minv[G-N]
            [-K]                      <= |-B_min|   [-K]
     """
-    from numpy import fmin, fmax, nan, isnan
-
     B_min = fmax((-vlim - gvel)/hvel, 2*(qlim[:,0] - gpos - hpos*gvel)/hpos**2)
     B_max = fmin(( vlim - gvel)/hvel, 2*(qlim[:,1] - gpos - hpos*gvel)/hpos**2)
 

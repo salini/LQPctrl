@@ -207,8 +207,10 @@ class LQPcontroller(Controller):
             for n, val in self.dgforcemax.iteritems():
                 dlimits[j[n].dof] = self.dgforcemax[n]
             self._dgforcemax = dlimits[selected_dof]
+            self._prec_gforce = zeros(len(self._dgforcemax))
         else:
             self._dgforcemax = None
+            self._prec_gforce = None
 
         self.S = zeros((self.ndof, len(selected_dof)))          ### S the actuation matrix ###
         self.S[selected_dof, range(len(selected_dof))] = 1
@@ -476,7 +478,6 @@ class LQPcontroller(Controller):
         :return: the set of equalities and inequalities (A,b,G,h)
 
         """
-        from numpy import max
         from constraints import eq_motion, eq_contact_acc, ineq_gforcemax, ineq_joint_limits, ineq_friction
         _start_time = _time() ### get LQP constraints from world configuration ###
 
@@ -487,8 +488,8 @@ class LQPcontroller(Controller):
         ####### Compute constraints #######
         equalities   = [(zeros((0, self.n_problem)), zeros(0))]
         inequalities = [(zeros((0, self.n_problem)), zeros(0))]
-        
-        inequalities.append( ineq_gforcemax(self._gforcemax, self._dgforcemax, dt, self._gforce, self.ndof, self.n_fc, self.formalism) )
+
+        inequalities.append( ineq_gforcemax(self._gforcemax, self._dgforcemax, dt, self._prec_gforce, self.ndof, self.n_fc, self.formalism) )
         if self.formalism == 'dgvel chi':
             M = rstate['M']
             Jchi_T = rstate['Jchi.T']
@@ -573,8 +574,10 @@ class LQPcontroller(Controller):
         """
         if self.options['formalism'] == 'dgvel chi':
             self._gforce[:] = dot(self.S, X_solution[(self.ndof+self.n_fc):])
+            self._prec_gforce = X_solution[(self.ndof+self.n_fc):]
         elif self.options['formalism'] == 'chi':
             self._gforce[:] = dot(self.S, X_solution[self.n_fc:])
+            self._prec_gforce = X_solution[(self.n_fc):]
 
 
     def get_gforce(self):

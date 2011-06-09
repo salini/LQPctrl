@@ -99,6 +99,18 @@ class RecordJointPosition(_Recorder):
         self._record.append(rec)
 
 
+class RecordJointVelocity(_Recorder):
+    def __init__(self, joints):
+        _Recorder.__init__(self)
+        if not hasattr(joints, "__iter__"):
+            joints = [joints]
+        self.joints = joints
+
+    def update(self, dt):
+        rec = array([j.gvel.copy() for j in self.joints]).flatten()
+        self._record.append(rec)
+
+
 class RecordGforce(_Recorder):
     def __init__(self, lqpc):
         _Recorder.__init__(self)

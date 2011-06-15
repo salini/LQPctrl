@@ -4,6 +4,7 @@
 
 
 from numpy import array, zeros, sqrt, sign, dot, cross
+from numpy.linalg import norm
 
 ################################################################################
 #
@@ -221,7 +222,7 @@ def body_com_properties(body, compute_J=True):
         T_com2_body[3:6] = 0.
         dAd_com2_body = dAdjoint(Ad_com2_body, T_com2_body)
         dJ_com2 = dot(Ad_com2_body, body.djacobian) + dot(dAd_com2_body, body.jacobian)
-        return P_0_com, J_com2[3:6,:], dJ_com2[3:6,:]
+        return P_0_com, J_com2, dJ_com2
     else:
         return P_0_com
 
@@ -241,8 +242,8 @@ def com_properties(bodies, compute_J=True):
             if compute_J:
                 P_com, J_com, dJ_com = result
                 P_com_sum += m*P_com
-                J_com_sum += m*J_com
-                dJ_com_sum = m*dJ_com
+                J_com_sum += m*J_com[3:6,:]
+                dJ_com_sum = m*dJ_com[3:6,:]
             else:
                 P_com = result
                 P_com_sum += m*P_com
@@ -257,4 +258,30 @@ def com_properties(bodies, compute_J=True):
         return P_com
 
 
+def zmp_position(bodies, g, gvel, dgvel, n=None):
+    """
+    """
+    from arboris.massmatrix import principalframe, transport
+    R0_sum = zeros(3)
+    M0_sum = zeros(3)
+    for b in bodies:
+        Mbody = b.mass
+        m = Mbody[3,3]
+        if m >=1e-10:
+            H_body_com = principalframe(Mbody)
+            Mcom = transport(Mbody, H_body_com)
+            I = Mcom[0:3, 0:3]
+            P_com, J_com, dJ_com = body_com_properties(b)
+            twist = dot(J_com, gvel)
+            dtwist = dot(J_com, dgvel) + dot(dJ_com, gvel)
 
+            R0 = dot(m, (dtwist[3:6] - g))
+            M0 = dot(m, cross(P_com, (dtwist[3:6] - g))) + \
+                 (dot(I, dtwist[0:3]) - cross(dot(I, twist[0:3]), twist[0:3]))
+            R0_sum += R0
+            M0_sum += M0
+
+    if n is None:
+        n = g/norm(g)
+    zmp = cross(n,M0_sum) / dot(R0_sum,n)
+    return zmp

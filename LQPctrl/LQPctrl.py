@@ -43,7 +43,7 @@ def lqpc_options(options={}):
     _options = {'pos horizon'  : None,
                 'vel horizon'  : None,
                 'npan'         : 8,
-                'base weights' : (1e-8, 1e-8, 1e-8),#(1e-1, 1e-1, 1e-1),#
+                'base weights' : (1e-7, 1e-7, 1e-7),#(1e-1, 1e-1, 1e-1),#
                 'solver'       : 'cvxopt',
                 'cost'         : 'normal', # | 'wrench consistent'
                 'norm'         : 'normal', # | 'inv(lambda)'
@@ -63,9 +63,9 @@ def lqpc_solver_options(options={}):
 
     """
     _options = {'show_progress' : True,
-                'abstol'        : 1e-6,
-                'reltol'        : 1e-6,
-                'feastol'       : 1e-6,
+                'abstol'        : 1e-8,
+                'reltol'        : 1e-7,
+                'feastol'       : 1e-7,
                 'maxiters'      : 100,
                }
     _options.update(options)

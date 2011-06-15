@@ -67,13 +67,19 @@ def _solve_cvxopt(E, f, G, h, A, b):
     q = 2*dot(f, E)
     Pp, qp, Gp, hp, Ap, bp = matrix(P), matrix(q), matrix(G), matrix(h), matrix(A), matrix(b)
 
-    for i in range(-16, -8):
+    degenerate_rank = -16
+    for i in range(10):
         try:
             results = qpsolver(Pp, qp, Gp, hp, Ap, bp)
-        except ValueError:
-            print 'Resolution problem: Degenerate P to ensure rank(P;G;A)=n'
-            P += eye(P.shape[0])*10**(i)
-            Pp = matrix(P)
+        except ValueError as err:
+            print "Exception Error:",err.args
+            if err.args[0] == "Rank(A) < p or Rank([P; A; G]) < n":
+                print 'Try to degenerate P to ensure rank([P; A; G])=n'
+                P += eye(P.shape[0])*10**(degenerate_rank)
+                Pp = matrix(P)
+                degenerate_rank += 1
+            elif err.args[0] == "domain error":
+                print "Should delete some constraints"
         else:
             break
 

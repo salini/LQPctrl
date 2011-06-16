@@ -554,11 +554,8 @@ class LQPcontroller(Controller):
         """
         E = zeros((0, self.n_problem))
         f = zeros(0)
-
-        for t in tasks:
-            if t.is_active:
-                E = vstack( (E, t.weight*t.E) )
-                f = hstack( (f, t.weight*t.f) )
+        E = vstack([E]+[t.weight*t.E for t in tasks if t.is_active])
+        f = hstack([f]+[t.weight*t.f for t in tasks if t.is_active])
         return E, f
 
 

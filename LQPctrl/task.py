@@ -3,9 +3,9 @@
 #date=21 april 2011
 
 from abc import ABCMeta, abstractmethod, abstractproperty
-from arboris.core import NamedObject, Joint, LinearConfigurationSpaceJoint, Frame, Body, Constraint
+from arboris.core import NamedObject, NamedObjectsList, Joint, LinearConfigurationSpaceJoint, Frame, Body, Constraint
 from arboris.constraints import BallAndSocketConstraint, PointContact, SoftFingerContact
-from numpy import dot, zeros, arange, array, append
+from numpy import dot, zeros, arange, array, append, vstack, hstack
 from numpy.linalg import norm
 
 
@@ -27,7 +27,7 @@ class Task(NamedObject):
     
     class InheritedTask(Task):
         def __init__(self, ...):
-            Task.__init(self, ...)
+            Task.__init__(self, ...)
             [... your code ...]
 
         def init(self, world, LQP_ctrl):
@@ -116,7 +116,7 @@ class Task(NamedObject):
         It compute norm(E.\chi* + f) where \chi* is the optimal solution of the
         previous problem.
         """
-        self._error = norm(dot(self._E, X_solution) + self._f)
+        self._error = norm(dot(self.E, X_solution) + self.f)
 
 
     @abstractmethod
@@ -864,3 +864,52 @@ class MultiTorqueTask(WrenchTask):
 
 
 
+################################################################################
+#
+# Multi Tasks
+#
+################################################################################
+
+class MultiTask(Task):
+    def __init__(self, *args, **kargs):
+        Task.__init__(self, *args, **kargs)
+        self._subtask = NamedObjectsList([])
+
+
+    def init(self, world, LQP_ctrl):
+        Task.init(self, world, LQP_ctrl)
+        self._n_problem = LQP_ctrl.n_problem
+        for st in self._subtask:
+            st.init(world, LQP_ctrl)
+
+
+    def _update_matrices(self, rstate, dt):
+        for st in self._subtask:
+            st._update_matrices(rstate, dt)
+
+
+    def _update_E_f(self, rstate, dt):
+        for st in self._subtask:
+            st._update_E_f(rstate, dt)
+
+    @property
+    def E(self):
+        E = zeros((0, self._n_problem))
+        E = vstack([E]+[st.weight*st.E for st in self._subtask if st.is_active])
+        return E
+
+
+    @property
+    def f(self):
+        f = zeros(0)
+        f = hstack([f]+[st.weight*st.f for st in self._subtask if st.is_active])
+        return f
+
+    def _update_E_f_cost(self, rstate, dt):
+        pass
+
+    def _update_E_f_norm(self, rstate, dt):
+        pass
+
+    def _update_E_f_formalism(self, rstate, dt):
+        pass

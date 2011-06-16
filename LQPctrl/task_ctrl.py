@@ -28,9 +28,13 @@ def diff(val1, val2):
 class Ctrl:
     def __init__(self):
         self._error = 0.
+        self._goal = None
 
     def init(self, world, LQP_ctrl):
         pass
+
+    def set_goal(self, new_goal):
+        self._goal = new_goal
 
     @abstractmethod
     def update(self, rstate, dt):
@@ -73,9 +77,25 @@ class KpCtrl(dTwistCtrl):
         return dot(self._Kp, diff(_goal, pos)) + dot(self._Kd, -vel)
 
 
-class KpTrajCtrl(dTwistCtrl):
-    def __init__(self):
-        pass
+class KpTrajCtrl(KpCtrl):
+    def __init__(self, *args, **kargs):
+        KpCtrl.__init__(self, *args, **kargs)
+        self.set_goal(self._goal)
+
+    def set_goal(self, new_goal):
+        self._goal = new_goal
+        self._lim = min([len(v) for v in self._goal if v is not None]) - 1
+        self._counter = 0
+
+    def update(self, pos, vel, rstate, dt):
+        idx = min(self._counter, self._lim)
+        self._counter += 1
+
+        pos_err = diff(self._goal[0][idx], pos) if self._goal[0] is not None else 0.
+        vel_err = diff(self._goal[1][idx], vel) if self._goal[1] is not None else 0.
+        acc     = self._goal[2][idx]            if self._goal[2] is not None else 0.
+
+        return acc + dot(self._Kp, pos_err) + dot(self._Kd, vel_err)
 
 
 class QuadraticCtrl(dTwistCtrl):

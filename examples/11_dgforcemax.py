@@ -33,12 +33,13 @@ events = []
 
 ## LQP CONTROLLER
 from LQPctrl.LQPctrl import LQPcontroller
-# HERE YOU HAVE TO CHOOSE ONE OF THE COUPLE OF ()gforcemax, dgforcemax) BELOW:
+# HERE YOU HAVE TO CHOOSE ONE OF THE COUPLE (gforcemax, dgforcemax) BELOW:
 gforcemax, dgforcemax = {"Shoulder":10,"Elbow":5,"Wrist":2}, {"Shoulder":0.1,"Elbow":0.05,"Wrist":0.05}
 #gforcemax, dgforcemax = {"Shoulder":10,"Elbow":5,"Wrist":2}, {"Shoulder":0.1,"Wrist":0.05}
 #gforcemax, dgforcemax = {"Elbow":5,"Wrist":2}, {"Shoulder":0.1,"Elbow":0.05}
 #gforcemax, dgforcemax = {"Elbow":5,"Wrist":2}, {"Elbow":0.05}
 #gforcemax, dgforcemax = {"Elbow":5,"Wrist":2}, {"Shoulder":0.1}
+
 lqpc = LQPcontroller(gforcemax, dgforcemax, tasks=tasks)
 w.register(lqpc)
 

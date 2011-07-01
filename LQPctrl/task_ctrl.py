@@ -84,7 +84,10 @@ class KpTrajCtrl(KpCtrl):
 
     def set_goal(self, new_goal):
         self._goal = new_goal
-        self._lim = min([len(v) for v in self._goal if v is not None]) - 1
+        if not all([v is None for v in self._goal]):
+            self._lim = min([len(v) for v in self._goal if v is not None]) - 1
+        else:
+            self._lim = -1
         self._counter = 0
 
     def update(self, pos, vel, rstate, dt):
@@ -106,6 +109,9 @@ class QuadraticCtrl(dTwistCtrl):
         self._QonR = QonR
         self._h    = int(horizon/dt)
         self._dt   = dt
+
+    def set_goal(self, new_goal):
+        self._goal = asarray(new_goal)
 
     def _get_quadratic_cmd(self, Px, Pu, QonR, h, x_hat, z_ref):
         from numpy.linalg import inv

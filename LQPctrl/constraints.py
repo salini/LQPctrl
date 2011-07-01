@@ -49,7 +49,7 @@ def eq_contact_acc(Jc, dJc_gvel, n_problem, const_activity, formalism='dgvel chi
             A = zeros((len(selected_dof), n_problem))
             A[:Adgvel.shape[0],:Adgvel.shape[1]] = Adgvel
             if len(selected_fc):
-                A_fc[arange(len(selected_fc)), Jc.shape[0]+ array(selected_fc)] = 1
+                A_fc[arange(len(selected_fc)), Jc.shape[1]+ array(selected_fc)] = 1
         elif formalism == 'chi':
             A = dot(Adgvel, Minv_Jchi_T)
             b = b - dot(Adgvel, Minv_G_N)

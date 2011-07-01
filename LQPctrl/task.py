@@ -105,9 +105,10 @@ class Task(NamedObject):
         updates E & f before LQPcontroller compute the whole cost function
         of the problem.
         """
-        self._update_error(rstate['X_solution'])
-        self._update_matrices(rstate, dt)
-        self._update_E_f(rstate, dt)
+        if self._is_active: #TODO: this test should be done or not?!?
+            self._update_error(rstate['X_solution'])
+            self._update_matrices(rstate, dt)
+            self._update_E_f(rstate, dt)
 
 
     def _update_error(self, X_solution):
@@ -885,12 +886,14 @@ class MultiTask(Task):
 
     def _update_matrices(self, rstate, dt):
         for st in self._subtask:
-            st._update_matrices(rstate, dt)
+            if st.is_active:
+                st._update_matrices(rstate, dt)
 
 
     def _update_E_f(self, rstate, dt):
         for st in self._subtask:
-            st._update_E_f(rstate, dt)
+            if st.is_active:
+                st._update_E_f(rstate, dt)
 
     @property
     def E(self):

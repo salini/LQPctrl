@@ -285,3 +285,114 @@ def zmp_position(bodies, g, gvel, dgvel, n=None):
         n = g/norm(g)
     zmp = cross(n,M0_sum) / dot(R0_sum,n)
     return zmp
+
+
+
+
+################################################################################
+#
+# CONVEX HULL COMPUTATION
+#
+################################################################################
+def convex_hull(point):
+    """
+    """
+    def on_left(p0, p1, p2):
+        """
+        P2 is left of P0->P1 if result > 0
+        P2 is on P0->P1 line if result = 0
+        P2 is right of P0->P1 if result < 0
+        in Matlab: res = (P1(1) - P0(1))*(P2(2) - P0(2)) - (P2(1) - P0(1))*(P1(2) - P0(2));
+        """
+        res = (p1[0]-p0[0])*(p2[1]-p0[1])  -  (p2[0]-p0[0])*(p1[1]-p0[1])
+        if res>0:
+            return True
+        else:
+            False
+
+    valid_pt = list(point)
+    nb_pt = len(valid_pt)
+    if nb_pt in [0, 1]:
+        return []
+    elif nb_pt == 2:
+        return [valid_pt[i] for i in [0, 1, 0]]
+
+    CH= []
+    #selection of the first point
+    selected_pt = valid_pt[0]
+    for p in valid_pt:
+        if p[0]<selected_pt[0]:
+            selected_pt = p
+    CH.append(selected_pt)
+    for i in range(len(valid_pt)):
+        if valid_pt[i] is selected_pt:
+            valid_pt.pop(i)
+            break
+
+    while len(valid_pt)>0:
+        #We select the last point on the CH list, and we test
+        #with the next valid points
+        selected_pt = valid_pt[0]
+        for pt in valid_pt[1:]:
+            if on_left(CH[-1], selected_pt, pt):
+                selected_pt = pt
+
+        if on_left(CH[-1], selected_pt, CH[0]):
+            CH.append(CH[0])
+            break
+        else:
+            CH.append(selected_pt)
+            for i in range(len(valid_pt)):
+                if valid_pt[i] is selected_pt:
+                    valid_pt.pop(i)
+                    break
+
+    if len(valid_pt) == 0:
+        CH.append(CH[0])
+
+    return CH
+
+
+def is_in_convex_hull(CH, point, margin=0.):
+    """ WARNING: CHECK VALIDITY WITH MARGIN!!!
+    """
+    if len(CH) <= 2:
+        return False
+
+    is_in = True
+    for i in range(len(CH)-1):
+        n = array([ float(CH[i+1][1]-CH[i][1]), -float((CH[i+1][0]-CH[i][0]))])
+        n /= norm(n)
+        ch0 = CH[i]   + margin*n
+        ch1 = CH[i+1] + margin*n
+        if ((ch1[0] - ch0[0])*(point[1] - ch0[1]) - (point[0] - ch0[0])*(ch1[1] - ch0[1])) > 0:
+            is_in =False
+            break
+    return is_in
+
+
+def extract_contact_points(poses, dof):
+    """
+    We extract the x and z components of the projected point
+    in the Rfloor coordinate
+    """
+    point = []
+    for p in poses:
+        point.append(p.pose[dof, 3])
+    return point
+
+
+
+
+################################################################################
+#
+# MISC COMPUTATION
+#
+################################################################################
+def interpolate_log(start, end, tend, dt):
+    from scipy.interpolate import piecewise_polynomial_interpolate as ppi
+    from numpy import log, exp, arange
+    logs, loge = log(start), log(end)
+    logtrans = ppi([0, tend], [[logs, 0], [loge, 0]], arange(0, round(tend/dt + 1))*dt)
+    return [exp(i) for i in logtrans]
+

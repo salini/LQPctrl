@@ -61,26 +61,31 @@ for k in traj:
 pl.title("trajectories of end effector")
 
 
-label = [('update robot state', 'up rstate', "g"), ('update tasks and events', 'up tasks','b'),
-         ('get constraints', 'get const','c'), ('sort tasks', 'sort tasks','m'), ('get cost function', 'get cost', 'y'),
-         ('solve', 'solve','r'), ('constrain next level', 'const next', 'k')]
+label = [('update robot state', 'up rstate', "g", 'center'), ('update tasks and events', 'up tasks','b', 'center'),
+         ('get constraints', 'get const','c', 'top'), #('sort tasks', 'sort tasks','m', 'center'),
+         ('get cost function', 'get cost', 'y', 'bottom'),
+         ('solve', 'solve','r', 'center'), #('constrain next level', 'const next', 'k', 'center')
+         ]
+from numpy import mean
 ind = arange(len(options))
 starting = zeros(len(options))
-width = .5
-lines = []
+width = .4
 pl.figure()
-for l,s,c in label:
-    high = array([results[n][l] for n in options])*1000.
-    lines.append( pl.bar(ind, high, width, starting, color=c, label=s) )
+for l,s,c,va in label:
+    high = array([mean(results[n][l]) for n in options])*1000.
+    pl.bar(ind, high, width, starting, color=c, label=s)
+    for i in arange(len(options)):
+        pl.text(ind[i]+width*1.1, starting[i] + high[i]/2., "{0:2.2f}".format(high[i]), ha='left', va=va )
     starting += high
 
 pl.ylabel('time (ms)')
 pl.title('Performance of LQPcontroller with different options')
-pl.xticks(ind+width/2., ["".join([v[0] for v in k.split(";")]) for k in options] )
-pl.axes().set_xlim(0,len(options)+3)
+
+pl.xticks(arange(len(options)+1)+width/2., ["\n".join([v[0] for v in k.split(";")]) for k in options] + ["= cost\n= norm\n= formalism"], size='small')
+pl.axes().set_xlim(0,len(options)+.5)
 
 handles, labels = pl.axes().get_legend_handles_labels()
-pl.axes().legend(handles[::-1], labels[::-1], loc='lower right')
+pl.axes().legend(handles[::-1], labels[::-1], loc='upper right', prop={"size":'small'})
 pl.gca().yaxis.grid(True)
 
 

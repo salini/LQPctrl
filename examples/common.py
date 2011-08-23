@@ -9,7 +9,7 @@ from arboris.controllers import WeightController
 from arboris.shapes import Plane, Point
 from arboris.constraints import SoftFingerContact
 
-from numpy import array
+from numpy import array, mean
 
 def create_3r_and_init(gpos=(0,0,0), gvel=(0,0,0), gravity=False):
     ## CREATE THE WORLD
@@ -62,8 +62,8 @@ def print_lqp_perf(lqpc):
     print('-------------------------------------------------')
     perf = lqpc.get_performance()
     for k,v in perf.items():
-        percent = round(v/perf['total']*100.,2)
-        print k, '(', percent, '%): ', round(v*1000,2), 'ms'
+        percent = round(mean(v)/mean(perf['total'])*100.,2)
+        print k, '(', percent, '%): ', round(mean(v)*1000,2), 'ms'
 
 
 from abc import ABCMeta, abstractmethod, abstractproperty

@@ -35,7 +35,8 @@ events = []
 from LQPctrl.LQPctrl import LQPcontroller
 gforcemax = {"Shoulder":10,"Elbow":5,"Wrist":2}
 
-lqpc = LQPcontroller(gforcemax, tasks=tasks)
+opt = {'base weights': (1e-10, 1e-10, 1e-10)}
+lqpc = LQPcontroller(gforcemax, tasks=tasks, options=opt)
 w.register(lqpc)
 
 

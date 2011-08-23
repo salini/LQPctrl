@@ -44,7 +44,7 @@ def lqpc_options(options={}):
                 'vel horizon'      : None,
                 'avoidance horizon': None,
                 'npan'         : 8,
-                'base weights' : (1e-7, 1e-7, 1e-7),#(1e-1, 1e-1, 1e-1),#
+                'base weights' : (1e-7, 1e-7, 1e-7),
                 'solver'       : 'cvxopt',
                 'cost'         : 'normal', # | 'wrench consistent'
                 'norm'         : 'normal', # | 'inv(lambda)'

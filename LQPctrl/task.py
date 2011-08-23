@@ -63,6 +63,7 @@ class Task(NamedObject):
         :param name: the name of the task.
         :type name: string
         """
+        name = name if name else str(id(self))
         NamedObject.__init__(self, name)
         self._level = level
         self._weight = weight

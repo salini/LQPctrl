@@ -7,6 +7,7 @@ from arboris.core import NamedObject, NamedObjectsList, Joint, LinearConfigurati
 from arboris.constraints import BallAndSocketConstraint, PointContact, SoftFingerContact
 from numpy import dot, zeros, arange, array, append, vstack, hstack
 from numpy.linalg import norm
+from time import time as _time
 
 
 from task_ctrl import dTwistCtrl, WrenchCtrl
@@ -96,7 +97,7 @@ class Task(NamedObject):
         self._ellipsoid_is_already_computed     = False
 
 
-    def update(self, rstate, dt):
+    def update(self, rstate, dt, _rec_performance):
         """ Update the task parameters.
 
         It computes: 
@@ -105,11 +106,14 @@ class Task(NamedObject):
         updates E & f before LQPcontroller compute the whole cost function
         of the problem.
         """
+        _starting_time = _time()
         if self._is_active: #TODO: this test should be done or not?!?
             self._update_error(rstate['X_solution'])
+            _start_time = _time()
             self._update_matrices(rstate, dt)
-            self._update_E_f(rstate, dt)
-
+            _rec_performance['update tasks and events/'+self.name+'/update matrices'] = _time() - _start_time
+            self._update_E_f(rstate, dt, _rec_performance)
+        _rec_performance['update tasks and events/'+self.name] = _time() - _starting_time
 
     def _update_error(self, X_solution):
         """ Compute the error of the previous time step.
@@ -118,7 +122,6 @@ class Task(NamedObject):
         previous problem.
         """
         self._error = norm(dot(self.E, X_solution) + self.f)
-
 
     @abstractmethod
     def _update_matrices(self, rstate, dt):
@@ -130,7 +133,7 @@ class Task(NamedObject):
         pass
 
 
-    def _update_E_f(self, rstate, dt):
+    def _update_E_f(self, rstate, dt, _rec_performance):
         """ Update E & f which define the task.
 
         It computes:
@@ -140,9 +143,18 @@ class Task(NamedObject):
         finally: E & f, depend on formalism.
         """
         self._raz_flags()
+        _start_time = _time()
         self._update_E_f_cost(rstate, dt)
+        t1 = _time() - _start_time
+        _start_time = _time()
         self._update_E_f_norm(rstate, dt)
+        t2 = _time() - _start_time
+        _start_time = _time()
         self._update_E_f_formalism(rstate, dt)
+        t3 = _time() - _start_time
+        _rec_performance['update tasks and events/'+self.name+'/update cost'] = t1
+        _rec_performance['update tasks and events/'+self.name+'/update norm'] = t2
+        _rec_performance['update tasks and events/'+self.name+'/update formalism'] = t3
 
 
     def _raz_flags(self):
@@ -238,9 +250,17 @@ class Task(NamedObject):
         return self._level
 
 
+    def set_level(self, l):
+        self._level = l
+
+
     @property
     def weight(self):
         return self._weight
+
+
+    def set_weight(self, w):
+        self._weight = w
 
 
     @property
@@ -884,16 +904,31 @@ class MultiTask(Task):
             st.init(world, LQP_ctrl)
 
 
-    def _update_matrices(self, rstate, dt):
+    def update(self, rstate, dt, _rec_performance):
+        """ Update the task parameters.
+
+        It computes: 
+        the task error,
+        updates matrices,
+        updates E & f before LQPcontroller compute the whole cost function
+        of the problem.
+        """
+        if self._is_active: #TODO: this test should be done or not?!?
+            self._update_error(rstate['X_solution'])
+            self._update_matrices(rstate, dt, _rec_performance)
+            self._update_E_f(rstate, dt, _rec_performance)
+
+    def _update_matrices(self, rstate, dt, _rec_performance):
         for st in self._subtask:
             if st.is_active:
+                _start_time = _time()
                 st._update_matrices(rstate, dt)
+                _rec_performance['update tasks and events/'+st.name+'/update matrices'] = _time() - _start_time
 
-
-    def _update_E_f(self, rstate, dt):
+    def _update_E_f(self, rstate, dt,  _rec_performance):
         for st in self._subtask:
             if st.is_active:
-                st._update_E_f(rstate, dt)
+                st._update_E_f(rstate, dt,  _rec_performance)
 
     @property
     def E(self):

@@ -40,8 +40,9 @@ def lqpc_options(options={}):
     :rtype: dict
 
     """
-    _options = {'pos horizon'  : None,
-                'vel horizon'  : None,
+    _options = {'pos horizon'      : None,
+                'vel horizon'      : None,
+                'avoidance horizon': None,
                 'npan'         : 8,
                 'base weights' : (1e-7, 1e-7, 1e-7),#(1e-1, 1e-1, 1e-1),#
                 'solver'       : 'cvxopt',
@@ -140,6 +141,7 @@ class LQPcontroller(Controller):
         self._init_WeightController()
         self._init_gforcemax()
         self._init_limits()
+        self._init_collision_shapes() #TODO
         self._init_constraints()
         self._init_solver()
         self._init_misc()
@@ -188,6 +190,17 @@ class LQPcontroller(Controller):
             self._vlim = nan*zeros(self.ndof)
             for n, val in self.vlim.iteritems():
                 self._vlim[joints[n].dof] = val
+
+
+    def _init_collision_shapes(self): #TODO
+        """Initialize collision shape list
+
+        """
+        from arboris.collisions import choose_solver
+        self.collision_shapes = []
+        if 'collision shapes' in self.data:
+            for couple_of_shapes in self.data['collision shapes']:
+                self.collision_shapes.append(choose_solver(*couple_of_shapes))
 
 
     def _init_gforcemax(self):
@@ -295,43 +308,43 @@ class LQPcontroller(Controller):
         """
         from solver import solve
 
-        self._rec_performance = {}
+        _rec_performance = {}
         _tstart = _time()
 
-        rstate = self._update_robot_state(dt)
-        self._update_tasks_and_events(rstate, dt)
+        rstate = self._update_robot_state(dt, _rec_performance)
+        self._update_tasks_and_events(rstate, dt, _rec_performance)
 
         if self.world._current_time > 0 and len(self.tasks)>0:
 
-            A, b, G, h = self._get_constraints(rstate, dt)
-            sorted_tasks = self._get_sorted_tasks()
+            A, b, G, h = self._get_constraints(rstate, dt, _rec_performance)
+            sorted_tasks = self._get_sorted_tasks(_rec_performance)
 
             i=0
-            self._rec_performance['get cost function'] = []
-            self._rec_performance['solve'] = []
-            self._rec_performance['constrain next level'] = []
+            _rec_performance['get cost function'] = []
+            _rec_performance['solve'] = []
+            _rec_performance['constrain next level'] = []
             for tasks in sorted_tasks:
 
                 _t0 = _time() ### compute cost function ###
                 E_tasks, f_tasks = self._get_objective(tasks, dt)
                 E = vstack((self.E_base, E_tasks))
                 f = hstack((self.f_base, f_tasks))
-                self._rec_performance['get cost function'].append(_time() - _t0)
+                _rec_performance['get cost function'].append(_time() - _t0)
 
                 _t0 = _time() ### solve the LQP ###
                 self.X_solution[:] = solve(E, f, G, h, A, b, self.options['solver'])
-                self._rec_performance['solve'].append(_time() - _t0)
+                _rec_performance['solve'].append(_time() - _t0)
 
                 _t0 = _time() ### concatenate solution with constraints to constrain next level ###
                 if i<len(sorted_tasks)-1:
                     A = vstack((A, E_tasks))
                     b = hstack((b, dot(E_tasks, self.X_solution)))
                     i+=1
-                self._rec_performance['constrain next level'].append(_time() - _t0)
+                _rec_performance['constrain next level'].append(_time() - _t0)
 
             self._update_gforce_from_optimization(self.X_solution)
-            self._rec_performance['total'] = _time() - _tstart
-            self._performance.append(dict(self._rec_performance))
+            _rec_performance['total'] = _time() - _tstart
+            self._performance.append(dict(_rec_performance))
         else:
             self._gforce[:] = 0.
 
@@ -344,7 +357,7 @@ class LQPcontroller(Controller):
 #
 ################################################################################
 
-    def _update_robot_state(self, dt):
+    def _update_robot_state(self, dt, _rec_performance):
         """ Compute the state of the robot.
 
         It returns a dictionary with the following string keys:
@@ -399,19 +412,19 @@ class LQPcontroller(Controller):
             rstate['Minv(Jchi.T)'] = dot(rstate['Minv'], rstate['Jchi.T'])
             rstate['Minv(g-n)'] = dot(rstate['Minv'], rstate['g-n'])
 
-        self._rec_performance['update robot state'] = _time() - _start_time
+        _rec_performance['update robot state'] = _time() - _start_time
         return rstate
 
 
-    def _update_tasks_and_events(self, rstate, dt):
+    def _update_tasks_and_events(self, rstate, dt, _rec_performance):
         """ Update the tasks and events registered in the LQP.
         """
         _start_time = _time() ### update tasks and events ###
         for e in self.events:
-            e.update(rstate, dt)
+            e.update(rstate, dt, _rec_performance)
         for t in self.tasks:
-            t.update(rstate, dt)
-        self._rec_performance['update tasks and events'] = _time() - _start_time
+            t.update(rstate, dt, _rec_performance)
+        _rec_performance['update tasks and events'] = _time() - _start_time
 
 
     def _update_Jc(self):
@@ -426,12 +439,11 @@ class LQPcontroller(Controller):
         for c in self.constraints:
             if c.is_enabled() and c.is_active() and self.is_enabled[c]:
                 if isinstance(c, PointContact):
+                    self.dJc[3*i:(3*(i+1)), :] = c._frames[1].djacobian[3:6] - c._frames[0].djacobian[3:6]
                     if c._frames[1].body in self.bodies:
                         self.Jc [3*i:(3*(i+1)), :] += c._frames[1].jacobian[3:6]
-                        self.dJc[3*i:(3*(i+1)), :] += c._frames[1].djacobian[3:6]
                     if c._frames[0].body in self.bodies:
                         self.Jc [3*i:(3*(i+1)), :] -= c._frames[0].jacobian[3:6]
-                        self.dJc[3*i:(3*(i+1)), :] -= c._frames[0].djacobian[3:6]
                 elif isinstance(c, BallAndSocketConstraint):
                     H1_0   = dot(inv(c._frames[1].pose), c._frames[0].pose)
                     Ad1_0  = adjoint(H1_0)
@@ -456,7 +468,7 @@ class LQPcontroller(Controller):
 #
 ################################################################################
 
-    def _get_constraints(self, rstate, dt):
+    def _get_constraints(self, rstate, dt, _rec_performance):
         """Return the constraints of the problem.
 
         Each constraint is build as:
@@ -507,6 +519,14 @@ class LQPcontroller(Controller):
             gvel = rstate['gvel']
             hpos, hvel = max(self.options['pos horizon'], dt), max(self.options['vel horizon'], dt)
             inequalities.append( ineq_joint_limits(self._qlim, self._vlim, gpos, gvel, hpos, hvel, self.n_problem, self.formalism, Minv_Jchi_T, Minv_G_N) )
+        ## TODO: this part is about obstacle avoidance:
+        if len(self.collision_shapes) > 0:
+            sdist, svel, J, dJ = self._extract_collision_shapes_data()
+            from constraints import ineq_collision_avoidance
+            hpos = max(self.options['avoidance horizon'], 10*dt)
+            gvel = rstate['gvel']
+            inequalities.append( ineq_collision_avoidance(sdist, svel, J, dJ, gvel, hpos, self.n_problem, self.formalism, Minv_Jchi_T, Minv_G_N) )
+#            raise NotImplementedError
 
         eq_A  , eq_b   = zip(*equalities)
         ineq_G, ineq_h = zip(*inequalities)
@@ -514,11 +534,11 @@ class LQPcontroller(Controller):
         A, b = vstack(eq_A), hstack(eq_b)
         G, h = vstack(ineq_G), hstack(ineq_h)
 
-        self._rec_performance['get constraints'] = _time() - _start_time
+        _rec_performance['get constraints'] = _time() - _start_time
         return A, b, G, h
 
 
-    def _get_sorted_tasks(self):
+    def _get_sorted_tasks(self, _rec_performance):
         """Get of list of level-sorted tasks.
 
         :return: A list of tasks from low-level to high-level.
@@ -544,7 +564,7 @@ class LQPcontroller(Controller):
             if not is_placed:
                 sorted_tasks.append([task])
 
-        self._rec_performance['sort tasks'] = _time() - _start_time
+        _rec_performance['sort tasks'] = _time() - _start_time
         return sorted_tasks
 
 
@@ -557,6 +577,39 @@ class LQPcontroller(Controller):
         E = vstack([E]+[t.weight*t.E for t in tasks if t.is_active])
         f = hstack([f]+[t.weight*t.f for t in tasks if t.is_active])
         return E, f
+
+
+    def _extract_collision_shapes_data(self):
+        """
+        """
+        from numpy.linalg import norm
+        from arboris.homogeneousmatrix import inv, adjoint, dAdjoint
+
+        cs = self.collision_shapes
+        sdist = zeros(len(cs))
+        svel  = zeros(len(cs))
+        J      = zeros((len(cs), self.ndof))
+        dJ     = zeros((len(cs), self.ndof))
+
+        for i in range(len(self.collision_shapes)):
+            sdist[i], Hgc0, Hgc1 = cs[i][1](cs[i][0])
+            f0, f1 = cs[i][0][0].frame, cs[i][0][1].frame
+
+            Hf0c0, Hf1c1 = dot(inv(f0.pose), Hgc0), dot(inv(f1.pose), Hgc1)
+            tf0_g_f0, tf1_g_f1 = f0.twist, f1.twist
+            Adc0f0, Adc1f1 = adjoint(inv(Hf0c0)), adjoint(inv(Hf1c1))
+            tc0_g_c0, tc1_g_c1 = dot(Adc0f0, tf0_g_f0), dot(Adc1f1, tf1_g_f1)
+            Jc0, Jc1 = dot(Adc0f0, f0.jacobian), dot(Adc1f1, f1.jacobian)
+            #as Tc_f_c = 0, there is no motion between the 2 frames because same body
+            dJc0, dJc1 = dot(Adc0f0, f0.jacobian), dot(Adc1f1, f1.jacobian)
+            
+            svel[i] = tc1_g_c1[5] - tc0_g_c0[5]
+            dJ[i,:] = dJc1[5] - dJc0[5]
+            if f1.body in self.bodies:
+                J[i,:]  += Jc1[5]
+            if f0.body in self.bodies:
+                J[i,:]  -= Jc0[5]
+        return sdist, svel, J, dJ
 
 
 
@@ -584,12 +637,11 @@ class LQPcontroller(Controller):
     def get_performance(self):
         """
         """
-        from numpy import sum, mean
+        from numpy import array, sum, mean
         perf = {}
         if len(self._performance):
             for n in self._performance[0]:
-                perf[n] = mean([sum(p[n]) for p in self._performance])
+                perf[n] = array([sum(p[n]) for p in self._performance])
         return perf
-
 
 

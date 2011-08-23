@@ -189,4 +189,31 @@ def ineq_joint_limits(qlim, vlim, gpos, gvel, hpos, hvel, n_problem, formalism='
 
 
 
+def ineq_collision_avoidance(sdist, svel, J, dJ, gvel, hpos, n_problem, formalism='dgvel chi', Minv_Jchi_T=None, Minv_G_N=None):
+    """ inequality collision avoidance: K.dgvel <= B
+    with K = -J and B = 2/hpos**2 * (sdist + hpos*svel) + dJ.gvel
+
+    for formalism 'dgvel chi':
+    Rewrite:         |dgvel |
+                     |fc    |
+           [ K, 0, 0]|gforce| <= | B |
+
+    or for formalism 'chi':
+    Rewrite:                |fc    |
+           [ K]Minv[Jc_T, S]|gforce| <= | B | - [ K]Minv[G-N]
+    """
+    B = 2*(sdist + hpos*svel)/hpos**2 + dot(dJ, gvel)
+    K = -J
+
+    h = B
+    if formalism == 'dgvel chi':
+        G = zeros((K.shape[0], n_problem))
+        G[:, :K.shape[1]] = K
+    elif formalism == 'chi':
+        G = dot(K, Minv_Jchi_T)
+        h = h - dot(K, Minv_G_N)
+
+    return G, h
+
+
 

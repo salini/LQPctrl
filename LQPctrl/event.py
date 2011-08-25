@@ -239,6 +239,37 @@ class ChangeWeight(Exe):
 
 
 
+class Activator(Exe):
+    """ A Exe Child class that set the activity of an element
+    """
+    def __init__(self, element, activity=True):
+        """ An initialization of the Activator instance
+
+        inputs:
+        element: List with anything with an "is_active" method
+        activity: - True to set the element activity to True
+                  - False to set the element activity to False
+                  - Anything else to toggle the element activity
+        """
+        if not isinstance(element, list):
+            element = [element]
+        for e in element:
+            if not hasattr(e, 'is_active'):
+                raise AttributeError('There is no "is_active" attribute in this element')
+        self.element = element
+        self.activity = activity
+
+    def update(self, rstate, dt, is_cond_fulfilled):
+        """ Set the activity of the element
+        """
+        if is_cond_fulfilled:
+            for e in self.element:
+                if self.activity is True or self.activity is False:
+                    e.set_activity(self.activity)
+                else:
+                    e.set_activity(not e.is_active)
+
+
 class ConstActivator(Exe):
     """ Set the activity of a constraint in the Arboris Simulation
     """
@@ -251,6 +282,8 @@ class ConstActivator(Exe):
                   - False to set the element activity to False
                   - Anything else to toggle the element activity
         """
+        if not isinstance(const, list):
+            const = [const]
         self.const = const
         self.activity = activity
         self.in_lqp = in_lqp
@@ -265,11 +298,11 @@ class ConstActivator(Exe):
         if is_cond_fulfilled:
             if self.in_lqp is False:
                 if self.activity is True:
-                    self.const.enable()
+                    for c in self.const: c.enable()
                 elif self.activity is False:
-                    self.const.disable()
+                    for c in self.const: c.disable()
             else:
-                self.LQP_ctrl.is_enabled[self.const] = self.activity
+                for c in self.const: self.LQP_ctrl.is_enabled[c] = self.activity
 
 
 class DelayFlag(Exe):
@@ -303,4 +336,5 @@ InCH = InConvexHull
 Prtr  = Printer
 ChW   = ChangeWeight
 AtT = AtTime
+Act = Activator
 CAct = ConstActivator

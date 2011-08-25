@@ -269,6 +269,10 @@ class Task(NamedObject):
         return self._is_active
 
 
+    def set_activity(self, a):
+        self._is_active = a
+
+
     @property
     def E(self):
         return self._E

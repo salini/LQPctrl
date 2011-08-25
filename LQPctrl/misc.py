@@ -389,10 +389,151 @@ def extract_contact_points(poses, dof):
 # MISC COMPUTATION
 #
 ################################################################################
+from scipy.interpolate import piecewise_polynomial_interpolate as ppi
+from numpy import arange, arctan2, sin, eye
+
 def interpolate_log(start, end, tend, dt):
-    from scipy.interpolate import piecewise_polynomial_interpolate as ppi
-    from numpy import log, exp, arange
+    from numpy import log, exp
     logs, loge = log(start), log(end)
     logtrans = ppi([0, tend], [[logs, 0], [loge, 0]], arange(0, round(tend/dt + 1))*dt)
     return [exp(i) for i in logtrans]
 
+
+
+def slerp(q0, q1, t, shortest_path=True):
+    """ Compute the Slerp (for Spherical Linear Interpolation) between 2 quaternions.
+
+    inputs:
+    q0: The beginning quaternion, must be an instance quaternion
+    q1: The ending quaternion, must be an instance quaternion
+    t: a float between 0 and 1
+    shortest_path (True): ensure to compute the quaternion on the shorthest path
+
+    The goal is to find the quaternion as:
+    q1 = q0*[cos(a), N.sin(a)]
+    qt = q0*[cos(t*a), N.sin(t*a)]
+    where a represents one angle (different from the angle of rotation)
+    and N the normalized vector of 3 components
+    q0,q1 and qt must be normalized, Hence:
+
+    qt = ( sin(a*(1-t))*q0 + sin(a*t)*q1 )/sin(a)
+
+    Returns qt
+    """
+    assert(isinstance(q0, quaternion))
+    assert(isinstance(q1, quaternion))
+    q0n = q0.normalize()
+    q1n = q1.normalize()
+    q0_1n = q0n.inv*q1n
+    ca = q0_1n.real         #cos(a)
+    sa = norm(q0_1n.img)    #sin(a)
+    if ca < 0 and shortest_path:
+        ca = -ca
+        q1n = -q1n
+    a = arctan2(sa, ca)
+    if abs(sa) > 1e-8:
+        q0coeff = sin(a*(1-t))/sin(a)
+        q1coeff = sin(a*t)/sin(a)
+        real = q0coeff*q0n.real + q1coeff*q1n.real
+        img  = q0coeff*q0n.img  + q1coeff*q1n.img
+        return quaternion(real=real, img=img)
+    else:
+        return q0n
+
+
+def simple_der(y, dt):
+    dy0 = (y[1]-y[0])/dt
+    dyn = (y[-1]-y[-2])/dt
+    Dt = 2*dt
+    dy = [(y[i+1]-y[i-1])/Dt for i in range(1, len(y)-1)]
+    return [dy0]+dy+[dyn]
+
+
+def interpolate_rotation_matrix(R0, R1, tend, dt):
+    """ Give the interpolation between 2 rotation matrices
+
+    inputs:
+    R0: the beginning rotation matrix
+    R1: the ending rotation matrix
+    tend: the end time
+    dt: the time step
+
+    this interpolation is done with no velocity or acceleration
+    at the beginning and at the end
+
+    Returns 3 lists: ([R], [omega], [domega])
+    """
+    def der_q(qim1, qip1, dt):
+        dqi = qip1 - qim1
+        return dqi.to_array()/dt
+
+    def Q(q):
+        r = q.real
+        i0, i1, i2 = q.img
+        return array([[-i0,  r,-i2, i1],
+                      [-i1, i2,  r,-i0],
+                      [-i2,-i1, i0,  r]])
+
+    q0, q1 = quaternion(R=R0), quaternion(R=R1)
+    fraction = ppi([0, tend], [[0, 0, 0], [1, 0, 0]], arange(0, tend+dt, dt))
+    q = [slerp(q0, q1, f) for f in fraction]
+    R = [qi.to_rot() for qi in q]
+
+    dq = [der_q(q[0], q[1], dt)] + \
+          [der_q(q[i-1], q[i+1], 2*dt) for i in range(1, len(q)-1)] + \
+          [der_q(q[-2], q[-1], dt)]
+
+    omega = [2*dot(Q(q[i]), dq[i]) for i in range(len(q))]
+    domega = simple_der(omega, dt)
+
+    return R, omega, domega
+
+
+def interpolate_vector(v0, v1, tend, dt):
+    """ Give the interpolation between 2 vectors
+
+    inputs:
+    v0: the beginning rotation matrix
+    v1: the ending rotation matrix
+    tend: the end time
+    dt: the time step
+
+    this interpolation is done with no velocity or acceleration
+    at the beginning and at the end
+
+    Returns 3 lists: ([v], [dv], [ddv])
+    """
+    assert(len(v0)==len(v1))
+    v = array([ppi([0, tend], [[v0[i], 0, 0], [v1[i], 0, 0]], arange(0, tend+dt, dt)) for i in range(len(v0))]).T
+    dv = simple_der(v, dt)
+    ddv = simple_der(dv, dt)
+
+    return v, dv, ddv
+
+
+def interpolate_htr(H_begin, H_end, tend, dt):
+    """Give the interpolation between 2 frames
+
+    inputs:
+    H_begin: the begin frame, a 4x4 homogeneous matrix
+    H_end: the end frame, a 4x4 homogeneous matrix
+    tend: the end time
+    dt: the time step
+
+    we interpolate from H_begin to H_end with velocities and
+    accelerations null at the beginning and at the end
+
+    Return 3 list: ([H],[twist],[dtwist])
+    """
+    def make_htr(R, p):
+        H = eye(4)
+        H[0:3, 0:3] = R
+        H[0:3, 3] = p
+        return H
+
+    R, w, dw = interpolate_rotation_matrix(H_begin[0:3, 0:3], H_end[0:3, 0:3], tend, dt)
+    p, v, dv = interpolate_vector(H_begin[0:3, 3], H_end[0:3, 3], tend, dt)
+    pos = [make_htr(R[i], p[i]) for i in range(len(R))]
+    vel = [array([w[i], v[i]]).flatten() for i in range(len(w))]
+    acc = [array([dw[i], dv[i]]).flatten() for i in range(len(dw))]
+    return pos, vel, acc

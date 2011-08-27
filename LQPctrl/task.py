@@ -287,6 +287,10 @@ class Task(NamedObject):
     def error(self):
         return self._error
 
+    @property
+    def ctrl(self):
+        return getattr(self, "_ctrl", None)
+
 
 
 

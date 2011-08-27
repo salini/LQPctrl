@@ -238,6 +238,49 @@ class ChangeWeight(Exe):
                 self.counter = None
 
 
+class ChangeLevel(Exe):
+    """
+    """
+    def __init__(self, tasks, lvl):
+        """
+        """
+        if not isinstance(tasks, list):
+            tasks = [tasks]
+        self.tasks = tasks
+        self._lvl = lvl
+
+    def update(self, rstate, dt, is_cond_fulfilled):
+        """
+        """
+        from misc import interpolate_log
+        if is_cond_fulfilled:
+            for t in self.tasks:
+                t.set_level(self._lvl)
+
+
+
+
+class ChangeGoal(Exe):
+    """ Change the goal of a task
+    """
+    def __init__(self, task, new_goal):
+        """ An initialization of the ChangeGoal instance
+
+        inputs:
+        task: the task which we want to change the controller
+        new_goal: the new goal
+        """
+        self.task = task
+        self.new_goal = new_goal
+
+    def update(self, rstate, dt, is_cond_fulfilled):
+        """ Change the goal of the task if the conditions are fulfilled
+        """
+        if is_cond_fulfilled:
+            self.task.counter = 0
+            self.task.ctrl.set_goal(self.new_goal)
+
+
 
 class Activator(Exe):
     """ A Exe Child class that set the activity of an element
@@ -335,6 +378,8 @@ DelayF = DelayFlag
 InCH = InConvexHull
 Prtr  = Printer
 ChW   = ChangeWeight
+ChG   = ChangeGoal
+ChL   = ChangeLevel
 AtT = AtTime
 Act = Activator
 CAct = ConstActivator

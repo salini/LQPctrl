@@ -217,7 +217,7 @@ class WalkingCtrl(Ctrl):
             sqt = self._sequence[self._step]
             r = self.step['time']*(1 - self.step['ratio'])/2.
             if t >= sqt - r:
-                print "desactivate FOOT", self._prev_foot
+                #print "desactivate FOOT", self._prev_foot
                 self._end_foot(self._prev_foot)
             if t >= sqt + r:
                 print "ACTIVATE FOOT", self._next_foot
@@ -276,7 +276,7 @@ class WalkingTask(MultiTask):
     def __init__(self, bodies, ctrl, *args, **kargs):
         MultiTask.__init__(self, *args, **kargs)
         self._bodies = bodies
-        self.ctrl = ctrl
+        self._ctrl = ctrl
 
         com_args = [ctrl.zmp_ctrl, ctrl.cdof, 1, 0, True, "CoM"]
         if len(bodies): self._subtask.append( CoMTask(bodies, *com_args) )
@@ -287,11 +287,11 @@ class WalkingTask(MultiTask):
 
     def init(self, world, LQP_ctrl):
         MultiTask.init(self, world, LQP_ctrl)
-        self.ctrl.init(world, LQP_ctrl)
+        self._ctrl.init(world, LQP_ctrl)
 
 
     def update(self, rstate, dt, _rec_performance):
         MultiTask.update(self, rstate, dt, _rec_performance)
-        self.ctrl.update(rstate, dt)
+        self._ctrl.update(rstate, dt)
 
 

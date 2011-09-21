@@ -43,6 +43,7 @@ def lqpc_options(options={}):
     _options = {'pos horizon'      : None,
                 'vel horizon'      : None,
                 'avoidance horizon': None,
+                'avoidance margin' : 0.,
                 'npan'         : 8,
                 'base weights' : (1e-7, 1e-7, 1e-7),
                 'solver'       : 'cvxopt',
@@ -335,6 +336,7 @@ class LQPcontroller(Controller):
                 self.X_solution[:] = solve(E, f, G, h, A, b, self.options['solver'])
                 _rec_performance['solve'].append(_time() - _t0)
 
+#                print "level "+str(i)+": solved"
                 _t0 = _time() ### concatenate solution with constraints to constrain next level ###
                 if i<len(sorted_tasks)-1:
                     A = vstack((A, E_tasks))
@@ -501,7 +503,10 @@ class LQPcontroller(Controller):
         equalities   = [(zeros((0, self.n_problem)), zeros(0))]
         inequalities = [(zeros((0, self.n_problem)), zeros(0))]
 
-        inequalities.append( ineq_gforcemax(self._gforcemax, self._dgforcemax, dt, self._prec_gforce, self.ndof, self.n_fc, self.formalism) )
+        if self.world._current_time > 0:
+            inequalities.append( ineq_gforcemax(self._gforcemax, self._dgforcemax, dt, self._prec_gforce, self.ndof, self.n_fc, self.formalism) )
+        else:
+            inequalities.append( ineq_gforcemax(self._gforcemax, None, None, self.ndof, self.n_fc, self.formalism) )
         if self.formalism == 'dgvel chi':
             M = rstate['M']
             Jchi_T = rstate['Jchi.T']
@@ -593,6 +598,7 @@ class LQPcontroller(Controller):
 
         for i in range(len(self.collision_shapes)):
             sdist[i], Hgc0, Hgc1 = cs[i][1](cs[i][0])
+            sdist[i] -= self.options['avoidance margin']
             f0, f1 = cs[i][0][0].frame, cs[i][0][1].frame
 
             Hf0c0, Hf1c1 = dot(inv(f0.pose), Hgc0), dot(inv(f1.pose), Hgc1)

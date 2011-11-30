@@ -1,4 +1,4 @@
-LQPctrl2
+LQPctrl
 
 Copyright (c) 2011, 2012 UPMC/ISIR
 All rights reserved.

@@ -5,7 +5,8 @@
 from task import MultiTask, CoMTask, LQPCoMTask, FrameTask
 from task_ctrl import Ctrl, ZMPCtrl, KpTrajCtrl
 
-from numpy import dot, arctan2, asarray, array, linspace, ones, sin, cos, vstack, arange, pi, zeros, tile, eye
+from numpy import dot, arctan2, asarray, array, linspace, ones, \
+                  sin, cos, vstack, arange, pi, zeros, tile, eye
 from numpy.linalg import norm
 
 from arboris.homogeneousmatrix import rotx, roty, rotz
@@ -18,7 +19,8 @@ from scipy.interpolate import piecewise_polynomial_interpolate as ppi
 #
 ################################################################################
 
-def traj2zmppoints(comtraj, step_length, step_side, left_start, right_start, start_foot='left'):
+def traj2zmppoints(comtraj, step_length, step_side, \
+                   left_start, right_start, start_foot='left'):
     """Generate a set of points to locate the feet position around a trajectory
     of the Center of Mass.
 
@@ -40,8 +42,10 @@ def traj2zmppoints(comtraj, step_length, step_side, left_start, right_start, sta
     right_start = array(right_start)
     point = []
 
-    if   start_foot == 'left' : point.extend([left_start, right_start])
-    elif start_foot == 'right': point.extend([right_start, left_start])
+    if   start_foot == 'left' :
+        point.extend([left_start, right_start])
+    elif start_foot == 'right':
+        point.extend([right_start, left_start])
     else: raise ValueError
     next_foot = start_foot
 
@@ -52,7 +56,8 @@ def traj2zmppoints(comtraj, step_length, step_side, left_start, right_start, sta
         if sum_distance > step_length:
             angle = comtraj[i][2]
             ecart = step_side*array([-sin(angle), cos(angle), 0])
-            if next_foot is 'right': ecart = -ecart
+            if next_foot is 'right':
+                ecart = -ecart
             point.append(comtraj[i] + ecart)
             sum_distance = 0.
             next_foot = 'right' if next_foot == 'left' else 'left'
@@ -60,9 +65,10 @@ def traj2zmppoints(comtraj, step_length, step_side, left_start, right_start, sta
     # just to get the 2 last footsteps
     angle = comtraj[-1][2]
     ecart = step_side*array([-sin(angle), cos(angle), 0])
-    if next_foot == 'left': point.extend([comtraj[-1] + ecart, comtraj[-1] - ecart])
-    else:                   point.extend([comtraj[-1] - ecart, comtraj[-1] + ecart])
-
+    if next_foot == 'left':
+        point.extend([comtraj[-1] + ecart, comtraj[-1] - ecart])
+    else:
+        point.extend([comtraj[-1] - ecart, comtraj[-1] + ecart])
     return point
 
 
@@ -106,14 +112,22 @@ def zmppoints2foottraj(point, step_time, ratio, step_height, dt, cdof, R0):
         #WARNING: do this trick to get the shortest path:
         a0, a1 = (p0[2])%(2*pi), (p1[2])%(2*pi)
         diff = abs(a1 - a0)
-        if   abs(a1+2*pi - a0) <diff: a1 += 2*pi
-        elif abs(a1-2*pi - a0) <diff: a1 -= 2*pi
-        return a0,a1
+        if   abs(a1+2*pi - a0) <diff:
+            a1 += 2*pi
+        elif abs(a1-2*pi - a0) <diff:
+            a1 -= 2*pi
+        return a0, a1
 
     foot_traj = []
-    if   0 not in cdof: up = 0; operation=rotx
-    elif 1 not in cdof: up = 1; operation=roty
-    elif 2 not in cdof: up = 2; operation=rotz
+    if   0 not in cdof:
+        up = 0
+        operation = rotx
+    elif 1 not in cdof:
+        up = 1
+        operation = roty
+    elif 2 not in cdof:
+        up = 2
+        operation = rotz
 
     xout      = arange(0, step_time*ratio+dt, dt)
     xin, xin2 = [0, step_time*ratio], [0, step_time*ratio/2, step_time*ratio]
@@ -124,10 +138,15 @@ def zmppoints2foottraj(point, step_time, ratio, step_height, dt, cdof, R0):
         yin1   = [[point[i][1], 0, 0], [point[i+2][1], 0, 0]]
         a_start, a_end = get_bounded_angles(point[i], point[i+2])
         yangle = [[a_start, 0, 0], [a_end, 0, 0]]
-        data = [(cdof[0], xin, yin0), (cdof[1], xin, yin1), (up,xin2, yup), ('angle', xin, yangle)]
+        data = [(cdof[0], xin, yin0), \
+                (cdof[1], xin, yin1), \
+                (up,xin2, yup), \
+                ('angle', xin, yangle)]
         res = {}
         for c, xx, yy in data:
-            res[c] = (ppi(xx, yy, xout), ppi(xx, yy, xout, der=1), ppi(xx, yy, xout, der=2))
+            res[c] = (ppi(xx, yy, xout), \
+                      ppi(xx, yy, xout, der=1),
+                      ppi(xx, yy, xout, der=2))
 
         ## save traj
 #        pos = zeros((len(xout), 4, 4))
@@ -136,14 +155,15 @@ def zmppoints2foottraj(point, step_time, ratio, step_height, dt, cdof, R0):
         acc = zeros((len(xout), 6))
 
         for j in arange(len(xout)):
-            pos[j, 0:3,0:3] = dot(operation(res['angle'][0][j])[0:3,0:3], R0[0:3,0:3] )
-        vel[:,up] = res['angle'][1]
-        acc[:,up] = res['angle'][2]
+            pos[j, 0:3, 0:3] = dot(operation(res['angle'][0][j])[0:3, 0:3], \
+                                  R0[0:3, 0:3] )
+        vel[:, up] = res['angle'][1]
+        acc[:, up] = res['angle'][2]
 
         for j in arange(3):
-            pos[:,j, 3] = res[j][0]
-            vel[:, 3+j] = res[j][1]
-            acc[:, 3+j] = res[j][2]
+            pos[:, j, 3] = res[j][0]
+            vel[:, 3+j]  = res[j][1]
+            acc[:, 3+j]  = res[j][2]
 
         foot_traj.append( [pos, vel, acc] )
     return foot_traj
@@ -162,6 +182,7 @@ def zmppoints2foottraj(point, step_time, ratio, step_height, dt, cdof, R0):
 ################################################################################
 class WalkingCtrl(Ctrl):
     def __init__(self, goal, zmp_args, feet, step):
+        Ctrl.__init__(self)
         self._goal = goal
         self.feet  = feet
         self.step  = step
@@ -169,17 +190,25 @@ class WalkingCtrl(Ctrl):
         self.zmp_ctrl = ZMPCtrl([], **zmp_args)
 
         Kp, Kd, weight = feet['Kp'], feet['Kd'], feet['weight']
-        self.l_foot_ctrl = KpTrajCtrl([None,None,None], Kp, Kd)
-        self.r_foot_ctrl = KpTrajCtrl([None,None,None], Kp, Kd)
-        self.l_foot_task = FrameTask(feet['l_frame'], self.l_foot_ctrl, [], weight, 0, False, "l_foot")
-        self.r_foot_task = FrameTask(feet['r_frame'], self.r_foot_ctrl, [], weight, 0, False, "r_foot")
+        self.l_foot_ctrl = KpTrajCtrl([None, None, None], Kp, Kd)
+        self.r_foot_ctrl = KpTrajCtrl([None, None, None], Kp, Kd)
+        self.l_foot_task = FrameTask(feet['l_frame'], self.l_foot_ctrl, \
+                                     [], weight, 0, False, "l_foot")
+        self.r_foot_task = FrameTask(feet['r_frame'], self.r_foot_ctrl, \
+                                     [], weight, 0, False, "r_foot")
         
         self.cdof = zmp_args['cdof']
         self.dt   = zmp_args['dt']
-        self._R0  = feet["R0"][0:3,0:3]
+        self._R0  = feet["R0"][0:3, 0:3]
         self._iR0 = self._R0.T
 
         self.events = []
+        self._num_step = 0
+        self._sequence = []
+        self._prev_foot = None
+        self._next_foot = None
+        self._foot_traj = None
+
 
     def init(self, world, LQP_ctrl):
         self.world = world
@@ -198,61 +227,78 @@ class WalkingCtrl(Ctrl):
             end   = asarray(new_goal["pos"])
             vect = (end - start)
             angle = arctan2(vect[1], vect[0])
-            traj = array([linspace(start[0], end[0], 100), linspace(start[1], end[1], 100), angle*ones(100)]).T
+            traj = array([linspace(start[0], end[0], 100), \
+                          linspace(start[1], end[1], 100), \
+                          angle*ones(100)]).T
             s = self.step
             l_start, r_start = self._get_lf_pose(), self._get_rf_pose()
-            points  = traj2zmppoints(traj, s["length"], s["side"], l_start, r_start, s["start"])
+            points  = traj2zmppoints(traj, s["length"], s["side"], \
+                                     l_start, r_start, s["start"])
             zmp_ref = zmppoints2zmptraj(points, s["time"], self.dt)
             self.zmp_ctrl.set_goal(zmp_ref)
-            ftraj = zmppoints2foottraj(points, s["time"], s["ratio"], s["height"], self.dt, self.cdof, self._R0)
-            self._sequence = self.world.current_time + (arange(len(ftraj)+1) + .5)*self.step["time"]
+            ftraj = zmppoints2foottraj(points, s["time"], \
+                                       s["ratio"], s["height"], \
+                                       self.dt, self.cdof, self._R0)
+            self._sequence = self.world.current_time + \
+                             (arange(len(ftraj)+1) + .5)*self.step["time"]
             self._foot_traj = ftraj
-            self._step = 0
+            self._num_step = 0
             self._next_foot = self.step['start']
-            self._prev_foot = 'right' if self.step['start']=='left' else 'left'
+            self._prev_foot = 'right' if \
+                              self.step['start'] == 'left' else 'left'
 
     def update(self, rstate, dt):
-        if len(self._sequence) and self._step < len(self._sequence):
+        if len(self._sequence) and self._num_step < len(self._sequence):
             t = self.world.current_time
-            sqt = self._sequence[self._step]
+            sqt = self._sequence[self._num_step]
             r = self.step['time']*(1 - self.step['ratio'])/2.
             if t >= sqt - r:
                 #print "desactivate FOOT", self._prev_foot
                 self._end_foot(self._prev_foot)
             if t >= sqt + r:
                 print "ACTIVATE FOOT", self._next_foot
-                if self._step < len(self._foot_traj):
-                    self._start_foot(self._next_foot, self._foot_traj[self._step])
+                if self._num_step < len(self._foot_traj):
+                    self._start_foot(self._next_foot, \
+                                     self._foot_traj[self._num_step])
                 self._prepare_to_next_foot()
 
 
     def _end_foot(self, foot):
-        if   foot == 'left' : task = self.l_foot_task; const = self.feet['l_const']
-        elif foot == 'right': task = self.r_foot_task; const = self.feet['r_const']
+        if   foot == 'left' :
+            task = self.l_foot_task
+            const = self.feet['l_const']
+        elif foot == 'right':
+            task = self.r_foot_task
+            const = self.feet['r_const']
         for c in const:
             self.LQP_ctrl.is_enabled[c] = True
         task._is_active = False
 
     def _start_foot(self, foot, traj):
-        if   foot == 'left' : task = self.l_foot_task; const = self.feet['l_const']
-        elif foot == 'right': task = self.r_foot_task; const = self.feet['r_const']
+        if   foot == 'left' :
+            task = self.l_foot_task
+            const = self.feet['l_const']
+        elif foot == 'right':
+            task = self.r_foot_task
+            const = self.feet['r_const']
         for c in const:
             self.LQP_ctrl.is_enabled[c] = False
         task._is_active = True
-        task._ctrl.set_goal(traj)
+        task.ctrl.set_goal(traj)
 
     def _prepare_to_next_foot(self):
         tmp = self._next_foot
         self._next_foot = self._prev_foot
         self._prev_foot = tmp
-        self._step += 1
+        self._num_step += 1
 
 
 
     def _get_foot_pose(self, pose):
         pos   = pose[self.cdof, 3]
-        H0a0  = dot(pose[0:3,0:3], self._iR0)
-        angle = arctan2(H0a0[self.cdof[1], self.cdof[0]], H0a0[self.cdof[0], self.cdof[0]])
+        H0a0  = dot(pose[0:3, 0:3], self._iR0)
+        angle = arctan2(H0a0[self.cdof[1], self.cdof[0]], \
+                        H0a0[self.cdof[0], self.cdof[0]])
         return array([pos[0], pos[1], angle])
 
     def _get_lf_pose(self):
@@ -279,8 +325,10 @@ class WalkingTask(MultiTask):
         self._ctrl = ctrl
 
         com_args = [ctrl.zmp_ctrl, ctrl.cdof, 1, 0, True, "CoM"]
-        if len(bodies): self._subtask.append( CoMTask(bodies, *com_args) )
-        else:           self._subtask.append( LQPCoMTask(*com_args) )
+        if len(bodies):
+            self._subtask.append( CoMTask(bodies, *com_args) )
+        else:
+            self._subtask.append( LQPCoMTask(*com_args) )
         self._subtask.append( ctrl.l_foot_task )
         self._subtask.append( ctrl.r_foot_task )
 

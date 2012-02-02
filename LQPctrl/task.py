@@ -2,15 +2,20 @@
 #author=Joseph Salini
 #date=21 april 2011
 
-from abc import ABCMeta, abstractmethod, abstractproperty
-from arboris.core import NamedObject, NamedObjectsList, Joint, LinearConfigurationSpaceJoint, Frame, Body, Constraint
-from arboris.constraints import BallAndSocketConstraint, PointContact, SoftFingerContact
-from numpy import dot, zeros, arange, array, append, vstack, hstack
-from numpy.linalg import norm
+from abc import ABCMeta, abstractmethod
 from time import time as _time
 
+from arboris.core import NamedObject, NamedObjectsList, Joint, \
+                         LinearConfigurationSpaceJoint, Frame, Body, Constraint
+from arboris.constraints import BallAndSocketConstraint, PointContact, \
+                                SoftFingerContact
+from arboris.homogeneousmatrix import adjoint, dAdjoint
+
+from numpy import dot, zeros, arange, array, append, vstack, hstack, diag, sqrt
+from numpy.linalg import norm, inv, pinv, LinAlgError, cholesky, svd
 
 from task_ctrl import dTwistCtrl, WrenchCtrl
+from misc import com_properties
 
 ################################################################################
 #
@@ -45,7 +50,7 @@ class Task(NamedObject):
     __metaclass__ = ABCMeta
 
 
-    def __init__(self, cdof=[], weight=1, level=0, is_active=True, name=None):
+    def __init__(self, cdof=None, weight=1, level=0, is_active=True, name=None):
         """ Save the generic values of a task.
 
         :param cdof: the controlled dofs of the part.
@@ -65,10 +70,30 @@ class Task(NamedObject):
         """
         name = name if name else str(id(self))
         NamedObject.__init__(self, name)
-        self._level = level
+        self._cdof = cdof or []
         self._weight = weight
+        self._level = level
         self._is_active = is_active
-        self._cdof = cdof
+
+        self._cost = None
+        self._norm = None
+        self._formalism = None
+
+        self._E = zeros((0, 0))
+        self._f = zeros(0)
+        self._error = 0.
+        self._J = zeros((0, 0)) # overwritten by inherited classes
+
+        self._inv_lambda    = zeros((0, 0))
+        self._lambda        = zeros((0, 0))
+        self._inv_ellipsoid = zeros((0, 0))
+        self._ellipsoid     = zeros((0, 0))
+        self._L_T           = zeros((0, 0))
+
+        self._inv_lambda_is_already_computed    = False
+        self._lambda_is_already_computed        = False
+        self._inv_ellipsoid_is_already_computed = False
+        self._ellipsoid_is_already_computed     = False
 
 
     def init(self, world, LQP_ctrl):
@@ -76,7 +101,7 @@ class Task(NamedObject):
 
         It sets: the cost, norm and formalism of the problem.
 
-        It initializes: E, f & error, which define the tasks.
+        It initializes: E & f which define the tasks.
         """
         self._cost = LQP_ctrl.cost
         self._norm = LQP_ctrl.norm
@@ -84,18 +109,12 @@ class Task(NamedObject):
 
         self._E = zeros((len(self._cdof), LQP_ctrl.n_problem))
         self._f = zeros(len(self._cdof))
-        self._error = 0.
 
         self._inv_lambda    = zeros((len(self._cdof), len(self._cdof)))
         self._lambda        = zeros((len(self._cdof), len(self._cdof)))
         self._inv_ellipsoid = zeros((len(self._cdof), len(self._cdof)))
         self._ellipsoid     = zeros((len(self._cdof), len(self._cdof)))
         self._L_T           = zeros((len(self._cdof), len(self._cdof)))
-
-        self._inv_lambda_is_already_computed    = False
-        self._lambda_is_already_computed        = False
-        self._inv_ellipsoid_is_already_computed = False
-        self._ellipsoid_is_already_computed     = False
 
 
     def update(self, rstate, dt, _rec_performance):
@@ -108,13 +127,15 @@ class Task(NamedObject):
         of the problem.
         """
         _starting_time = _time()
-        if self._is_active: #TODO: this test should be done or not?!?
+        if self._is_active:
             self._update_error(rstate['X_solution'])
             _start_time = _time()
             self._update_matrices(rstate, dt)
-            _rec_performance['update tasks and events/'+self.name+'/update matrices'] = _time() - _start_time
+            _rec_performance['update tasks and events/' + self.name + \
+                             '/update matrices'] = _time() - _start_time
             self._update_E_f(rstate, dt, _rec_performance)
-        _rec_performance['update tasks and events/'+self.name] = _time() - _starting_time
+        _rec_performance['update tasks and events/' + \
+                         self.name] = _time() - _starting_time
 
     def _update_error(self, X_solution):
         """ Compute the error of the previous time step.
@@ -153,9 +174,12 @@ class Task(NamedObject):
         _start_time = _time()
         self._update_E_f_formalism(rstate, dt)
         t3 = _time() - _start_time
-        _rec_performance['update tasks and events/'+self.name+'/update cost'] = t1
-        _rec_performance['update tasks and events/'+self.name+'/update norm'] = t2
-        _rec_performance['update tasks and events/'+self.name+'/update formalism'] = t3
+        _rec_performance['update tasks and events/' + self.name + \
+                         '/update cost'] = t1
+        _rec_performance['update tasks and events/' + self.name + \
+                         '/update norm'] = t2
+        _rec_performance['update tasks and events/' + self.name + \
+                         '/update formalism'] = t3
 
 
     def _raz_flags(self):
@@ -179,8 +203,6 @@ class Task(NamedObject):
     def _update_lambda(self, rstate, dt):
         """
         """
-        from numpy.linalg import inv, pinv, LinAlgError
-
         if not self._lambda_is_already_computed:
             self._lambda_is_already_computed = True
             self._update_inv_lambda(rstate, dt)
@@ -195,18 +217,18 @@ class Task(NamedObject):
         """
         if not self._inv_ellipsoid_is_already_computed:
             self._inv_ellipsoid_is_already_computed = True
-            self._inv_ellipsoid[:] = dot(self._J, dot(rstate['Minv*Minv'], self._J.T))
-            self._inv_ellipsoid[:] = self._inv_ellipsoid / norm(self._inv_ellipsoid)
+            self._inv_ellipsoid[:] = dot(self._J, \
+                                         dot(rstate['Minv*Minv'], self._J.T))
+            self._inv_ellipsoid[:] = \
+                                 self._inv_ellipsoid / norm(self._inv_ellipsoid)
 
 
     def _update_ellipsoid(self, rstate, dt):
         """
         """
-        from numpy.linalg import inv, pinv, LinAlgError
-
         if not self._ellipsoid_is_already_computed:
             self._ellipsoid_is_already_computed = True
-            self._update_inv_ellipsoid()
+            self._update_inv_ellipsoid(rstate, dt)
             try:
                 self._ellipsoid[:] = inv(self._inv_ellipsoid)
             except LinAlgError:
@@ -216,12 +238,10 @@ class Task(NamedObject):
     def _update_L_T_for_normalization(self, norm_matrix):
         """
         """
-        from numpy import diag, sqrt
-        from numpy.linalg import cholesky, svd, LinAlgError
         try:
             self._L_T[:] = cholesky(norm_matrix).T
         except LinAlgError:
-            u,s,vh = svd(norm_matrix, full_matrices=False)
+            u, s = svd(norm_matrix, full_matrices=False)[0:2]
             self._L_T[:] = dot(diag(sqrt(s)), u.T)
 
 
@@ -309,6 +329,14 @@ class dTwistTask(Task):
         """
         Task.__init__(self, *args, **kwargs)
 
+        self._ndof = 0
+        self._J  = zeros((0, 0))
+        self._dJ = zeros((0, 0))
+        self._dVdes = zeros(0)
+
+        self._E_dgvel = zeros((0, 0))
+        self._f_dgvel = zeros(0)
+
 
     def init(self, world, LQP_ctrl):
         """ Initialize a dTwistTask.
@@ -350,7 +378,8 @@ class dTwistTask(Task):
         elif self._cost == 'wrench consistent':
             self._update_lambda(rstate, dt)
             self._E_dgvel[:] = dot(self._lambda, self._J)
-            self._f_dgvel[:] = dot(self._lambda, dot(self._dJ, rstate['gvel']) - self._dVdes)
+            self._f_dgvel[:] = \
+                  dot(self._lambda, dot(self._dJ, rstate['gvel']) - self._dVdes)
 
         elif self._cost == 'dtwist consistent':
             self._E_dgvel[:] = self._J
@@ -359,7 +388,8 @@ class dTwistTask(Task):
         elif self._cost == 'a/m':
             self._update_inv_lambda(rstate, dt)
             self._E_dgvel[:] = dot(self._inv_lambda, self._J)
-            self._f_dgvel[:] = dot(self._inv_lambda, dot(self._dJ, rstate['gvel']) - self._dVdes)
+            self._f_dgvel[:] = \
+              dot(self._inv_lambda, dot(self._dJ, rstate['gvel']) - self._dVdes)
 
 
     def _update_E_f_norm(self, rstate, dt):
@@ -403,8 +433,8 @@ class dTwistTask(Task):
         E = E_dgvel.Minv.Jchi' and f = f + E_dgvel.Minv.(g - n)
         """
         if self._formalism == 'dgvel chi':
-            self._E[:,0:self._ndof] = self._E_dgvel
-            self._f[:]              = self._f_dgvel
+            self._E[:, 0:self._ndof] = self._E_dgvel
+            self._f[:]               = self._f_dgvel
         elif self._formalism == 'chi':
             self._E[:] = dot(self._E_dgvel, rstate['Minv(Jchi.T)'])
             self._f[:] = self._f_dgvel + dot(self._E_dgvel, rstate['Minv(g-n)'])
@@ -485,7 +515,6 @@ class FrameTask(dTwistTask):
     def _update_matrices(self, rstate, dt):
         """
         """
-        from arboris.homogeneousmatrix import adjoint, dAdjoint
         H_0_f = self._frame.pose
         HR_0_f = H_0_f.copy()
         HR_0_f[0:3, 3] = 0
@@ -497,7 +526,8 @@ class FrameTask(dTwistTask):
         dAdR_0_f = dAdjoint(AdR_0_f, T_f_0_f_only_rot)
 
         J  = dot(AdR_0_f, self._frame.jacobian)
-        dJ = dot(AdR_0_f, self._frame.djacobian) + dot(dAdR_0_f, self._frame.jacobian)
+        dJ = dot(AdR_0_f, self._frame.djacobian) + \
+             dot(dAdR_0_f, self._frame.jacobian)
 
         gpos = self._frame.pose
         gvel = T_f_0_0
@@ -542,9 +572,10 @@ class MultiJointTask(dTwistTask):
         dTwistTask.init(self, world, LQP_ctrl)
         self._ctrl.init(world, LQP_ctrl)
 
-        joints_dofs_in_world = array([],dtype=int)
+        joints_dofs_in_world = array([], dtype=int)
         for j in self._joints:
-            joints_dofs_in_world = append(joints_dofs_in_world, arange(self._ndof)[j.dof])
+            joints_dofs_in_world = append(joints_dofs_in_world, \
+                                          arange(self._ndof)[j.dof])
         self._cdof = array(joints_dofs_in_world)[self._cdof_in_joints]
         self._J[arange(len(self._cdof)), self._cdof] = 1
 
@@ -595,8 +626,6 @@ class CoMTask(dTwistTask):
     def _update_matrices(self, rstate, dt):
         """
         """
-        from misc import com_properties
-
         com_gpos, J, dJ = com_properties(self._bodies)
         com_gvel = dot(J, rstate['gvel'])
         cmd = self._ctrl.update(com_gpos, com_gvel, rstate, dt)
@@ -616,7 +645,7 @@ class LQPCoMTask(CoMTask):
         """
         """
         CoMTask.__init__(self, [], ctrl, *args, **kwargs)
-
+        self.lqp_bodies = []
 
     def init(self, world, LQP_ctrl):
         """
@@ -628,8 +657,6 @@ class LQPCoMTask(CoMTask):
     def _update_matrices(self, rstate, dt):
         """
         """
-        from misc import com_properties
-
         if "Pcom" not in rstate:
             com_gpos, J, dJ = com_properties(self.lqp_bodies)
             com_gvel = dot(J, rstate['gvel'])
@@ -661,6 +688,14 @@ class WrenchTask(Task):
         """
         """
         Task.__init__(self, *args, **kwargs)
+
+        self._ndof = 0
+        self._S = zeros((0, 0))
+        self._J = zeros((0, 0))
+        self._Wdes = zeros(0)
+
+        self._E_chi = zeros((0, 0))
+        self._f_chi = zeros(0)
 
 
     def init(self, world, LQP_ctrl):
@@ -831,11 +866,11 @@ class ForceTask(WrenchTask):
         if 1:#self._norm == 'inv(lambda)':
             J = self._constraint.jacobian
             if isinstance(self._constraint, BallAndSocketConstraint):
-                self._J[:] = J[self._cdof,:]
+                self._J[:] = J[self._cdof, :]
             elif isinstance(self._constraint, SoftFingerContact):
-                self._J[:] = J[(self._cdof+1),:]
+                self._J[:] = J[(self._cdof+1), :]
             elif isinstance(self._constraint, PointContact):
-                self._J[:] = J[self._cdof,:]
+                self._J[:] = J[self._cdof, :]
 
         cmd = self._ctrl.update(rstate, dt)
         self._Wdes[:] = cmd[self._cdof]
@@ -875,9 +910,10 @@ class MultiTorqueTask(WrenchTask):
         WrenchTask.init(self, world, LQP_ctrl)
         self._ctrl.init(world, LQP_ctrl)
 
-        joints_dofs_in_world = array([],dtype=int)
+        joints_dofs_in_world = array([], dtype=int)
         for j in self._joints:
-            joints_dofs_in_world = append(joints_dofs_in_world, arange(self._ndof)[j.dof])
+            joints_dofs_in_world = append(joints_dofs_in_world, \
+                                          arange(self._ndof)[j.dof])
         self._cdof = array(joints_dofs_in_world)[self._cdof_in_joints]
         self._J[arange(len(self._cdof)), self._cdof] = 1
 
@@ -904,6 +940,7 @@ class MultiTask(Task):
     def __init__(self, *args, **kargs):
         Task.__init__(self, *args, **kargs)
         self._subtask = NamedObjectsList([])
+        self._n_problem = 0
 
 
     def init(self, world, LQP_ctrl):
@@ -932,7 +969,8 @@ class MultiTask(Task):
             if st.is_active:
                 _start_time = _time()
                 st._update_matrices(rstate, dt)
-                _rec_performance['update tasks and events/'+st.name+'/update matrices'] = _time() - _start_time
+                _rec_performance['update tasks and events/' + st.name + \
+                                 '/update matrices'] = _time() - _start_time
 
     def _update_E_f(self, rstate, dt,  _rec_performance):
         for st in self._subtask:

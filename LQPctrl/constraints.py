@@ -2,7 +2,14 @@
 #author=Joseph Salini
 #date=21 april 2011
 
-from numpy import zeros, array, arange, dot, hstack, vstack, fmin, fmax, nan, isnan
+""" Set of all (eqaulity & inequality) constraints use in LQPctrl.
+
+Each constraint is described by the couples:
+    (A,b) for eqality constraints such as Ax = b
+    (G,h) for ineqality constraints such as Gx <= h
+"""
+from numpy import zeros, array, arange, dot, hstack, vstack, fmin, fmax, \
+                  isnan, cos, sin, pi
 
 def eq_motion(M, Jchi_T, G_N):
     """ equation of motion: M.dgvel + N = S.gforce + Jc_T.fc + G
@@ -16,7 +23,8 @@ def eq_motion(M, Jchi_T, G_N):
     return A, b
 
 
-def eq_contact_acc(Jc, dJc_gvel, n_problem, const_activity, formalism='dgvel chi', Minv_Jchi_T=None, Minv_G_N=None):
+def eq_contact_acc(Jc, dJc_gvel, n_problem, const_activity, \
+                   formalism='dgvel chi', Minv_Jchi_T=None, Minv_G_N=None):
     """ equality of contact acceleration: Jc.dgvel + dJc.gvel = 0
 
     for formalism 'dgvel chi':
@@ -47,23 +55,25 @@ def eq_contact_acc(Jc, dJc_gvel, n_problem, const_activity, formalism='dgvel chi
         b_fc = zeros(len(selected_fc))
         if formalism == 'dgvel chi':
             A = zeros((len(selected_dof), n_problem))
-            A[:Adgvel.shape[0],:Adgvel.shape[1]] = Adgvel
+            A[:Adgvel.shape[0], :Adgvel.shape[1]] = Adgvel
             if len(selected_fc):
-                A_fc[arange(len(selected_fc)), Jc.shape[1]+ array(selected_fc)] = 1
+                A_fc[arange(len(selected_fc)), \
+                     Jc.shape[1] + array(selected_fc)] = 1
         elif formalism == 'chi':
             A = dot(Adgvel, Minv_Jchi_T)
             b = b - dot(Adgvel, Minv_G_N)
             if len(selected_fc):
                 A_fc[arange(len(selected_fc)), selected_fc] = 1
 
-        A = vstack((A,A_fc))
-        b = hstack((b,b_fc))
+        A = vstack((A, A_fc))
+        b = hstack((b, b_fc))
 
     return A, b
 
 
 
-def ineq_gforcemax(gforcemax, dgforcemax, dt, gforce_prec, n_dof, n_fc, formalism='dgvel chi'):
+def ineq_gforcemax(gforcemax, dgforcemax, dt, gforce_prec, \
+                   n_dof, n_fc, formalism='dgvel chi'):
     """ inequality of gforcemax: B_min <= gforce <= B_max
     with B_min = max(-gforcemax, gforce_prec - dgforcemax*dt)
          B_max = min( gforcemax, gforce_prec + dgforcemax*dt)
@@ -100,7 +110,8 @@ def ineq_gforcemax(gforcemax, dgforcemax, dt, gforce_prec, n_dof, n_fc, formalis
     return G, h
 
 
-def ineq_friction(mus, const_activity, n_pan, n_dof, n_problem, formalism='dgvel chi'):
+def ineq_friction(mus, const_activity, n_pan, n_dof, \
+                  n_problem, formalism='dgvel chi'):
     """ inequality for linearized friction cone: C.fc <= 0
 
     for formalism 'dgvel chi':
@@ -118,15 +129,16 @@ def ineq_friction(mus, const_activity, n_pan, n_dof, n_problem, formalism='dgvel
         G = zeros((0, n_problem))
         h = zeros(0)
     else:
-        from numpy import cos, sin, pi
         c_theta_2 = cos(pi/n_pan)
         def _gen_cone(_mu):
+            """ generic cone
+            """
             _mu2 = _mu * c_theta_2
             a = arange(n_pan)*2.*pi/n_pan
             gen_cone = zeros((n_pan, 3))
-            gen_cone[:,0] = cos(a)
-            gen_cone[:,1] = sin(a)
-            gen_cone[:,2] = - _mu2
+            gen_cone[:, 0] = cos(a)
+            gen_cone[:, 1] = sin(a)
+            gen_cone[:, 2] = - _mu2
             return gen_cone
 
         selected_fc  = []
@@ -141,19 +153,22 @@ def ineq_friction(mus, const_activity, n_pan, n_dof, n_problem, formalism='dgvel
             n_start = n_dof
         elif formalism == 'chi':
             n_start = 0
-        k=0
+        k = 0
         for i in selected_fc:
-            G[(k*n_pan):((k+1)*n_pan), (n_start+3*i):(n_start+3*(i+1))] = _gen_cone(mus[i])
-            k+=1
+            G[(k*n_pan):((k+1)*n_pan), \
+              (n_start+3*i):(n_start+3*(i+1))] = _gen_cone(mus[i])
+            k += 1
 
     return G, h
 
 
 
-def ineq_joint_limits(qlim, vlim, gpos, gvel, hpos, hvel, n_problem, formalism='dgvel chi', Minv_Jchi_T=None, Minv_G_N=None):
+def ineq_joint_limits(qlim, vlim, gpos, gvel, hpos, hvel, n_problem, \
+                      formalism='dgvel chi', Minv_Jchi_T=None, Minv_G_N=None):
     """ inequality of joint limits: B_min <= K.dgvel <= B_max
-    with B_min = max(2*(pos_lim_dn - pos -hpos.gvel)/hpos**2, (-vel_max - gvel)/hvel)
-         B_max = min(2*(pos_lim_up - pos -hpos.gvel)/hpos**2, ( vel_max - gvel)/hvel)
+    with
+    B_min = max(2*(pos_lim_dn - pos -hpos.gvel)/hpos**2, (-vel_max - gvel)/hvel)
+    B_max = min(2*(pos_lim_up - pos -hpos.gvel)/hpos**2, ( vel_max - gvel)/hvel)
 
     for formalism 'dgvel chi':
     Rewrite:         |dgvel |
@@ -166,8 +181,8 @@ def ineq_joint_limits(qlim, vlim, gpos, gvel, hpos, hvel, n_problem, formalism='
            [ K]Minv[Jc_T, S]|gforce|    | B_max| - [ K]Minv[G-N]
            [-K]                      <= |-B_min|   [-K]
     """
-    B_min = fmax((-vlim - gvel)/hvel, 2*(qlim[:,0] - gpos - hpos*gvel)/hpos**2)
-    B_max = fmin(( vlim - gvel)/hvel, 2*(qlim[:,1] - gpos - hpos*gvel)/hpos**2)
+    B_min = fmax((-vlim - gvel)/hvel, 2*(qlim[:, 0] - gpos - hpos*gvel)/hpos**2)
+    B_max = fmin(( vlim - gvel)/hvel, 2*(qlim[:, 1] - gpos - hpos*gvel)/hpos**2)
 
     selected_dof = [i for i in arange(len(B_min)) if not isnan(B_min[i])]
     n_lim_dof = len(selected_dof)
@@ -189,7 +204,9 @@ def ineq_joint_limits(qlim, vlim, gpos, gvel, hpos, hvel, n_problem, formalism='
 
 
 
-def ineq_collision_avoidance(sdist, svel, J, dJ, gvel, hpos, n_problem, formalism='dgvel chi', Minv_Jchi_T=None, Minv_G_N=None):
+def ineq_collision_avoidance(sdist, svel, J, dJ, gvel, \
+                             hpos, n_problem, formalism='dgvel chi', \
+                             Minv_Jchi_T=None, Minv_G_N=None):
     """ inequality collision avoidance: K.dgvel <= B
     with K = -J and B = 2/hpos**2 * (sdist + hpos*svel) + dJ.gvel
 

@@ -3,8 +3,11 @@
 #date=21 april 2011
 
 
-from numpy import array, dot, sum, where, diag, eye
+from numpy import array, dot, sum as np_sum, where, diag, eye
+from numpy.linalg import svd, LinAlgError
 
+from cvxopt import solvers, matrix
+from cvxopt.solvers import qp as qpsolver
 
 def _reduce_constraints(A, b):
     """ Make the constraint non-singular
@@ -20,15 +23,15 @@ def _reduce_constraints(A, b):
     Hence:
     Ar*x = br
     """
-    from numpy.linalg import svd, LinAlgError
+    
     try:
-        u,s,vh = svd(A, full_matrices=False)
-        r = sum(where(s>1e-3, 1, 0)) # compute the rank of A
-        ur,sr,vhr = u[:, :r], s[:r], vh[:r, :]
+        u, s, vh = svd(A, full_matrices=False)
+        r = np_sum(where(s>1e-3, 1, 0)) # compute the rank of A
+        ur, sr, vhr = u[:, :r], s[:r], vh[:r, :]
         Ar = dot(diag(sr), vhr)
         br = dot(ur.T, b)
     except (LinAlgError):
-        Ar= A.copy()
+        Ar = A.copy()
         br = b.copy()
     return Ar, br
 
@@ -36,11 +39,11 @@ def init_solver(solver='cvxopt', options=None):
     """
     """
     if solver is 'cvxopt':
-        from cvxopt import solvers
         if options is not None:
             solvers.options.update(options)
     else:
-        raise ValueError, 'The required solver is not implemented. try another solver.'
+        raise ValueError, \
+              'The required solver is not implemented. try another solver.'
 
 
 def solve(E, f, G, h, A, b, solver='cvxopt'):
@@ -52,7 +55,8 @@ def solve(E, f, G, h, A, b, solver='cvxopt'):
     if solver is 'cvxopt':
         X_solution = _solve_cvxopt(E, f, G, h, A, b)
     else:
-        raise ValueError, 'The required solver is not implemented. try another solver.'
+        raise ValueError, \
+              'The required solver is not implemented. try another solver.'
 
     return X_solution
 
@@ -60,24 +64,24 @@ def solve(E, f, G, h, A, b, solver='cvxopt'):
 def _solve_cvxopt(E, f, G, h, A, b):
     """
     """
-    from cvxopt import matrix
-    from cvxopt.solvers import qp as qpsolver
-
     P = 2*dot(E.T, E)
     q = 2*dot(f, E)
-    Pp, qp, Gp, hp, Ap, bp = matrix(P), matrix(q), matrix(G), matrix(h), matrix(A), matrix(b)
+    Pp = matrix(P)
+    qp = matrix(q)
+    Gp = matrix(G)
+    hp = matrix(h)
+    Ap = matrix(A)
+    bp = matrix(b)
 
-    degenerate_rank = -16
-    for i in range(10):
+    for degenerate_rank in range(-16, -5):
         try:
             results = qpsolver(Pp, qp, Gp, hp, Ap, bp)
         except ValueError as err:
-            print "Exception Error:",err.args
+            print "Exception Error:", err.args
             if err.args[0] == "Rank(A) < p or Rank([P; A; G]) < n":
                 print 'Try to degenerate P to ensure rank([P; A; G])=n'
                 P += eye(P.shape[0])*10**(degenerate_rank)
                 Pp = matrix(P)
-                degenerate_rank += 1
             elif err.args[0] == "domain error":
                 print "Should delete some constraints"
         else:

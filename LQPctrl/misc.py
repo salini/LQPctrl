@@ -2,9 +2,14 @@
 #author=Joseph Salini
 #date=20 may 2011
 
+from arboris.homogeneousmatrix import inv, iadjoint, dAdjoint
+from arboris.massmatrix import principalframe, transport
 
 from numpy import array, zeros, sqrt, sign, dot, cross
 from numpy.linalg import norm
+
+from scipy.interpolate import piecewise_polynomial_interpolate as ppi
+from numpy import arange, arctan2, sin, eye, log, exp
 
 ################################################################################
 #
@@ -118,7 +123,7 @@ class quaternion:
         """
         return quaternion(real=self.real, img=self.img)
 
-    def __add__(self, obj):
+    def __add__(self, Q):
         """ The addition between self and an other quaternion
         """
         assert (isinstance(Q, quaternion))
@@ -170,7 +175,8 @@ class quatpos:
         return H
 
     def __sub__(self, qv):
-        """make the substraction between the quatpos instance and an other (expressed in the same frame)
+        """make the substraction between the quatpos instance
+        and an other (expressed in the same frame)
 
         the difference is the concatenation of 2 differences:
         the 3 first are the rotational difference
@@ -205,8 +211,6 @@ class quatpos:
 def body_com_properties(body, compute_J=True):
     """ Compute the Center of Mass properties of a body.
     """
-    from arboris.homogeneousmatrix import inv, iadjoint, dAdjoint
-    from arboris.massmatrix import principalframe
 
     H_body_com = principalframe(body.mass)
     H_0_com = dot(body.pose, H_body_com)
@@ -214,14 +218,15 @@ def body_com_properties(body, compute_J=True):
 
     if compute_J:
         H_com_com2 = inv(H_0_com)
-        H_com_com2[0:3,3] = 0.
+        H_com_com2[0:3, 3] = 0.
         Ad_com2_body = iadjoint(dot(H_body_com, H_com_com2))
         J_com2 = dot(Ad_com2_body, body.jacobian)
 
         T_com2_body = body.twist.copy()
         T_com2_body[3:6] = 0.
         dAd_com2_body = dAdjoint(Ad_com2_body, T_com2_body)
-        dJ_com2 = dot(Ad_com2_body, body.djacobian) + dot(dAd_com2_body, body.jacobian)
+        dJ_com2 = dot(Ad_com2_body, body.djacobian) + \
+                  dot(dAd_com2_body, body.jacobian)
         return P_0_com, J_com2, dJ_com2
     else:
         return P_0_com
@@ -235,15 +240,15 @@ def com_properties(bodies, compute_J=True):
     J_com_sum = 0.
     dJ_com_sum = 0.
     for b in bodies:
-        m = b.mass[3,3]
-        if m >=1e-10:
+        m = b.mass[3, 3]
+        if m >= 1e-10:
             mass_sum += m
             result = body_com_properties(b, compute_J)
             if compute_J:
                 P_com, J_com, dJ_com = result
                 P_com_sum += m*P_com
-                J_com_sum += m*J_com[3:6,:]
-                dJ_com_sum = m*dJ_com[3:6,:]
+                J_com_sum += m*J_com[3:6, :]
+                dJ_com_sum = m*dJ_com[3:6, :]
             else:
                 P_com = result
                 P_com_sum += m*P_com
@@ -261,13 +266,12 @@ def com_properties(bodies, compute_J=True):
 def zmp_position(bodies, g, gvel, dgvel, n=None):
     """
     """
-    from arboris.massmatrix import principalframe, transport
     R0_sum = zeros(3)
     M0_sum = zeros(3)
     for b in bodies:
         Mbody = b.mass
-        m = Mbody[3,3]
-        if m >=1e-10:
+        m = Mbody[3, 3]
+        if m >= 1e-10:
             H_body_com = principalframe(Mbody)
             Mcom = transport(Mbody, H_body_com)
             I = Mcom[0:3, 0:3]
@@ -283,7 +287,7 @@ def zmp_position(bodies, g, gvel, dgvel, n=None):
 
     if n is None:
         n = g/norm(g)
-    zmp = cross(n,M0_sum) / dot(R0_sum,n)
+    zmp = cross(n, M0_sum) / dot(R0_sum, n)
     return zmp
 
 
@@ -302,13 +306,14 @@ def convex_hull(point):
         P2 is left of P0->P1 if result > 0
         P2 is on P0->P1 line if result = 0
         P2 is right of P0->P1 if result < 0
-        in Matlab: res = (P1(1) - P0(1))*(P2(2) - P0(2)) - (P2(1) - P0(1))*(P1(2) - P0(2));
+        in Matlab:
+        res = (P1(1) - P0(1))*(P2(2) - P0(2)) - (P2(1) - P0(1))*(P1(2) - P0(2))
         """
         res = (p1[0]-p0[0])*(p2[1]-p0[1])  -  (p2[0]-p0[0])*(p1[1]-p0[1])
-        if res>0:
+        if res > 0:
             return True
         else:
-            False
+            return False
 
     valid_pt = list(point)
     nb_pt = len(valid_pt)
@@ -317,11 +322,11 @@ def convex_hull(point):
     elif nb_pt == 2:
         return [valid_pt[i] for i in [0, 1, 0]]
 
-    CH= []
+    CH = []
     #selection of the first point
     selected_pt = valid_pt[0]
     for p in valid_pt:
-        if p[0]<selected_pt[0]:
+        if p[0] < selected_pt[0]:
             selected_pt = p
     CH.append(selected_pt)
     for i in range(len(valid_pt)):
@@ -365,8 +370,9 @@ def is_in_convex_hull(CH, point, margin=0.):
         n /= norm(n)
         ch0 = CH[i]   + margin*n
         ch1 = CH[i+1] + margin*n
-        if ((ch1[0] - ch0[0])*(point[1] - ch0[1]) - (point[0] - ch0[0])*(ch1[1] - ch0[1])) > 0:
-            is_in =False
+        if ((ch1[0] - ch0[0])*(point[1] - ch0[1]) - \
+            (point[0] - ch0[0])*(ch1[1] - ch0[1])) > 0:
+            is_in = False
             break
     return is_in
 
@@ -389,19 +395,16 @@ def extract_contact_points(poses, dof):
 # MISC COMPUTATION
 #
 ################################################################################
-from scipy.interpolate import piecewise_polynomial_interpolate as ppi
-from numpy import arange, arctan2, sin, eye
-
 def interpolate_log(start, end, tend, dt):
-    from numpy import log, exp
     logs, loge = log(start), log(end)
-    logtrans = ppi([0, tend], [[logs, 0], [loge, 0]], arange(0, round(tend/dt + 1))*dt)
+    logtrans = ppi([0, tend], [[logs, 0], [loge, 0]], \
+                   arange(0, round(tend/dt + 1))*dt)
     return [exp(i) for i in logtrans]
 
 
 
 def slerp(q0, q1, t, shortest_path=True):
-    """ Compute the Slerp (for Spherical Linear Interpolation) between 2 quaternions.
+    """ Compute Slerp (Spherical Linear Interpolation) between 2 quaternions.
 
     inputs:
     q0: The beginning quaternion, must be an instance quaternion
@@ -470,9 +473,9 @@ def interpolate_rotation_matrix(R0, R1, tend, dt):
     def Q(q):
         r = q.real
         i0, i1, i2 = q.img
-        return array([[-i0,  r,-i2, i1],
-                      [-i1, i2,  r,-i0],
-                      [-i2,-i1, i0,  r]])
+        return array([[-i0,   r, -i2,  i1],
+                      [-i1,  i2,   r, -i0],
+                      [-i2, -i1,  i0,   r]])
 
     q0, q1 = quaternion(R=R0), quaternion(R=R1)
     fraction = ppi([0, tend], [[0, 0, 0], [1, 0, 0]], arange(0, tend+dt, dt))
@@ -504,7 +507,8 @@ def interpolate_vector(v0, v1, tend, dt):
     Returns 3 lists: ([v], [dv], [ddv])
     """
     assert(len(v0)==len(v1))
-    v = array([ppi([0, tend], [[v0[i], 0, 0], [v1[i], 0, 0]], arange(0, tend+dt, dt)) for i in range(len(v0))]).T
+    v = array([ppi([0, tend], [[v0[i], 0, 0], [v1[i], 0, 0]], \
+               arange(0, tend+dt, dt)) for i in range(len(v0))]).T
     dv = simple_der(v, dt)
     ddv = simple_der(dv, dt)
 
@@ -531,7 +535,8 @@ def interpolate_htr(H_begin, H_end, tend, dt):
         H[0:3, 3] = p
         return H
 
-    R, w, dw = interpolate_rotation_matrix(H_begin[0:3, 0:3], H_end[0:3, 0:3], tend, dt)
+    R, w, dw = interpolate_rotation_matrix(H_begin[0:3, 0:3], \
+                                           H_end[0:3, 0:3], tend, dt)
     p, v, dv = interpolate_vector(H_begin[0:3, 3], H_end[0:3, 3], tend, dt)
     pos = [make_htr(R[i], p[i]) for i in range(len(R))]
     vel = [array([w[i], v[i]]).flatten() for i in range(len(w))]

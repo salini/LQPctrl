@@ -2,8 +2,13 @@
 #author=Joseph Salini
 #date=7 july 2011
 
-from arboris.core import NamedObject
+""" Module with all condition and execution classes to emulate Events.
+"""
 
+from abc import ABCMeta, abstractmethod
+from arboris.core import NamedObject
+from misc import extract_contact_points, convex_hull, is_in_convex_hull, \
+                 com_properties, interpolate_log
 
 common_flags = {}
 
@@ -13,14 +18,20 @@ class Cond:
 
     Return true if the condition is valid
     """
+    __metaclass__ = ABCMeta
+
     def __init__(self):
-        pass
+        """
+        """
+        self.world = None
+        self.LQP_ctrl = None
 
     def init(self, world, LQP_ctrl):
         pass
 
+    @abstractmethod
     def update(self, rstate, dt):
-        return False
+        pass
 
 
 
@@ -31,12 +42,16 @@ class Exe:
     if the conditions linked with an Event instance
     are fulfilled
     """
+    __metaclass__ = ABCMeta
+
     def __init__(self):
-        pass
+        self.world = None
+        self.LQP_ctrl = None
 
     def init(self, world, LQP_ctrl):
         pass
 
+    @abstractmethod
     def update(self, rstate, dt, is_cond_fulfilled):
         pass
 
@@ -59,13 +74,15 @@ class Event(NamedObject):
             cond = [cond]
         for c in cond:
             if not isinstance(c, Cond):
-                raise TypeError('The elements of the cond list must be Cond instance')
+                raise TypeError( \
+                'The elements of the cond list must be Cond instance')
         self.cond = cond
         if not isinstance(exe, list):
             exe = [exe]
         for e in exe:
             if not isinstance(e, Exe):
-                raise TypeError('The elements of the exe list must be Exe instance')
+                raise TypeError( \
+                'The elements of the exe list must be Exe instance')
         self.exe = exe
 
     def init(self, world, LQP_ctrl):
@@ -104,6 +121,7 @@ class Event(NamedObject):
 
 class AtTime(Cond):
     def __init__(self, t):
+        Cond.__init__(self)
         self.t = t
         self._is_done = False
 
@@ -112,7 +130,7 @@ class AtTime(Cond):
 
     def update(self, rstate, dt):
         if self.world.current_time >= self.t and self._is_done is False:
-            self._is_done=True
+            self._is_done = True
             return True
         else:
             return False
@@ -120,6 +138,7 @@ class AtTime(Cond):
 
 class IfFlag(Cond):
     def __init__(self, flag_key, status):
+        Cond.__init__(self)
         self.flag_key = flag_key
         self.status   = status
 
@@ -137,6 +156,7 @@ class InConvexHull(Cond):
     """
     """
     def __init__(self, frames, point, dof, margin=0., duration=0.):
+        Cond.__init__(self)
         self.frames = frames
         self.point_name = point
         self.dof = dof
@@ -152,7 +172,6 @@ class InConvexHull(Cond):
     def update(self, rstate, dt):
         """
         """
-        from misc import extract_contact_points, convex_hull, is_in_convex_hull, com_properties
         CH = convex_hull(extract_contact_points(self.frames, self.dof))
 
         if self.point_name in rstate:
@@ -182,6 +201,7 @@ class Printer(Exe):
         inputs:
         sentence: the string to display
         """
+        Exe.__init__(self)
         self.sentence = sentence
 
     def update(self, rstate, dt, is_cond_fulfilled):
@@ -193,9 +213,9 @@ class Printer(Exe):
 
 class SetFlag(Exe):
     def __init__(self, key, value):
+        Exe.__init__(self)
         self.key = key
         self.value   = value
-        
 
     def update(self, rstate, dt, is_cond_fulfilled):
         if is_cond_fulfilled:
@@ -209,6 +229,7 @@ class ChangeWeight(Exe):
     def __init__(self, task, ew, duration, sw=None):
         """
         """
+        Exe.__init__(self)
         self.task = task
         self._end_weight = ew
         self._start_weight = sw
@@ -220,7 +241,6 @@ class ChangeWeight(Exe):
     def update(self, rstate, dt, is_cond_fulfilled):
         """
         """
-        from misc import interpolate_log
         if is_cond_fulfilled:
             self.counter = 0
             if self._start_weight is None:
@@ -244,6 +264,7 @@ class ChangeLevel(Exe):
     def __init__(self, tasks, lvl):
         """
         """
+        Exe.__init__(self)
         if not isinstance(tasks, list):
             tasks = [tasks]
         self.tasks = tasks
@@ -252,7 +273,6 @@ class ChangeLevel(Exe):
     def update(self, rstate, dt, is_cond_fulfilled):
         """
         """
-        from misc import interpolate_log
         if is_cond_fulfilled:
             for t in self.tasks:
                 t.set_level(self._lvl)
@@ -270,6 +290,7 @@ class ChangeGoal(Exe):
         task: the task which we want to change the controller
         new_goal: the new goal
         """
+        Exe.__init__(self)
         self.task = task
         self.new_goal = new_goal
 
@@ -294,11 +315,13 @@ class Activator(Exe):
                   - False to set the element activity to False
                   - Anything else to toggle the element activity
         """
+        Exe.__init__(self)
         if not isinstance(element, list):
             element = [element]
         for e in element:
             if not hasattr(e, 'is_active'):
-                raise AttributeError('There is no "is_active" attribute in this element')
+                raise AttributeError( \
+                'There is no "is_active" attribute in this element')
         self.element = element
         self.activity = activity
 
@@ -325,31 +348,36 @@ class ConstActivator(Exe):
                   - False to set the element activity to False
                   - Anything else to toggle the element activity
         """
+        Exe.__init__(self)
         if not isinstance(const, list):
             const = [const]
         self.const = const
         self.activity = activity
         self.in_lqp = in_lqp
-        
 
     def init(self, world, LQP_ctrl):
         self.LQP_ctrl = LQP_ctrl
 
     def update(self, rstate, dt, is_cond_fulfilled):
-        """ Set the activity of the constraint in the simulation if the conditions are fulfilled
+        """ Set the activity of the constraint in the simulation
+        if the conditions are fulfilled.
         """
         if is_cond_fulfilled:
             if self.in_lqp is False:
                 if self.activity is True:
-                    for c in self.const: c.enable()
+                    for c in self.const:
+                        c.enable()
                 elif self.activity is False:
-                    for c in self.const: c.disable()
+                    for c in self.const:
+                        c.disable()
             else:
-                for c in self.const: self.LQP_ctrl.is_enabled[c] = self.activity
+                for c in self.const:
+                    self.LQP_ctrl.is_enabled[c] = self.activity
 
 
 class DelayFlag(Exe):
     def __init__(self, key, value, delay):
+        Exe.__init__(self)
         self.key   = key
         self.value = value
         self.delay = delay
@@ -362,9 +390,10 @@ class DelayFlag(Exe):
         if is_cond_fulfilled:
             self._start_time = self.world.current_time
 
-        if self._start_time is not None and self.world._current_time>=self._start_time+self.delay:
-                common_flags[self.key] = self.value
-                self._start_time = None
+        if self._start_time is not None and \
+           self.world.current_time >= self._start_time+self.delay:
+            common_flags[self.key] = self.value
+            self._start_time = None
 
 
 ################################################################################

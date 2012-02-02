@@ -6,13 +6,24 @@
 """ This module contains a controller which use a LQP to control a robot.
 
 """
+from arboris.core import Controller, NamedObjectsList, \
+                         LinearConfigurationSpaceJoint
+from arboris.controllers import WeightController
+from arboris.collisions import choose_solver
+from arboris.constraints import PointContact, BallAndSocketConstraint
+from arboris.homogeneousmatrix import adjoint, dAdjoint, iadjoint
 
-from arboris.core import Controller
-from numpy import zeros, hstack, vstack, dot
+from numpy import zeros, hstack, vstack, dot, ones, diag, eye, nan, isnan, \
+                  array, zeros, sum as np_sum
+from numpy.linalg import inv
 from time import time as _time
 
+from constraints import ineq_collision_avoidance, eq_motion, eq_contact_acc, \
+                        ineq_gforcemax, ineq_joint_limits, ineq_friction
+from solver import init_solver, solve
 
-def lqpc_data(data={}):
+
+def lqpc_data(data=None):
     """Return a dictionnary of options for the LQP controller.
 
     :param options: the user-defined data
@@ -22,7 +33,7 @@ def lqpc_data(data={}):
     :rtype: dict
 
     """
-    from numpy import eye
+    data = data or {}
     _data = {'bodies'          : None,
              'Hfloor'          : eye(4),
              'cop constraints' : [],
@@ -30,7 +41,7 @@ def lqpc_data(data={}):
     _data.update(data)
     return _data
 
-def lqpc_options(options={}):
+def lqpc_options(options=None):
     """Return a dictionnary of options for the LQP controller.
 
     :param options: the user-defined options
@@ -40,6 +51,7 @@ def lqpc_options(options={}):
     :rtype: dict
 
     """
+    options = options or {}
     _options = {'pos horizon'      : None,
                 'vel horizon'      : None,
                 'avoidance horizon': None,
@@ -54,7 +66,7 @@ def lqpc_options(options={}):
     _options.update(options)
     return _options
 
-def lqpc_solver_options(options={}):
+def lqpc_solver_options(options=None):
     """Return a dictionnary of options for the used solver.
 
     :param options: the user-defined options
@@ -64,6 +76,7 @@ def lqpc_solver_options(options={}):
     :rtype: dict
 
     """
+    options = options or {}
     _options = {'show_progress' : True,
                 'abstol'        : 1e-8,
                 'reltol'        : 1e-7,
@@ -78,7 +91,9 @@ class LQPcontroller(Controller):
     """
 
     """
-    def __init__(self, gforcemax, dgforcemax={}, qlim={}, vlim={}, tasks=[], events=[], data={}, options={}, solver_options={}, name=None):
+    def __init__(self, gforcemax, dgforcemax=None, qlim=None, vlim=None, \
+                       tasks=None, events=None, \
+                       data=None, options=None, solver_options=None, name=None):
         """ Initialize the instance of the LQP controller.
 
         :param gforcemax: max gforce (N or Nm) {'joint_name': max_gforce}
@@ -111,18 +126,47 @@ class LQPcontroller(Controller):
         :param name: the name of the LQP controller
 
         """
-        from arboris.core import NamedObjectsList
-        #TODO: Make the assertion!!
         Controller.__init__(self, name=name)
         self.gforcemax = dict(gforcemax)
-        self.dgforcemax = dict(dgforcemax)
-        self.qlim = dict(qlim)
-        self.vlim = dict(vlim)
-        self.events = NamedObjectsList(events)
-        self.tasks = NamedObjectsList(tasks)
+        self.dgforcemax = dgforcemax or {}
+        self.qlim = qlim or {}
+        self.vlim = vlim or {}
+        self.tasks = NamedObjectsList(tasks)  if tasks is not None \
+                     else NamedObjectsList([])
+        self.events = NamedObjectsList(events) if events is not None \
+                      else NamedObjectsList([])
         self.data = lqpc_data(data)
         self.options = lqpc_options(options)
         self.solver_options = lqpc_solver_options(solver_options)
+
+        self.world = None
+        self.bodies = []
+        self.WeightController = None
+        self._qlim = []
+        self._vlim = []
+        self.ndof = 0
+        self.S = zeros((0, 0))
+        self.constraints = []
+        self.is_enabled = {}
+        self._mus = []
+        self.n_fc = 0
+        self.Jc = zeros((0, 0))
+        self.dJc = zeros((0, 0))
+        self._gforcemax = []
+        self._dgforcemax = []
+        self._prec_gforce = None
+        self.n_chi = 0
+        self.n_gforce = 0
+        self.n_problem = 0
+        self.collision_shapes = []
+        self.X_solution = zeros(0)
+        self._gforce = zeros(0)
+        self.E_base = zeros((0, 0))
+        self.f_base = zeros(0)
+        self.cost = ""
+        self.norm = ""
+        self.formalism = ""
+        self._performance = []
 
 
 ################################################################################
@@ -142,10 +186,9 @@ class LQPcontroller(Controller):
         self._init_WeightController()
         self._init_gforcemax()
         self._init_limits()
-        self._init_collision_shapes() #TODO
+        self._init_collision_shapes()
         self._init_constraints()
         self._init_solver()
-        self._init_misc()
 
         for e in self.events:
             e.init(world, self)
@@ -167,9 +210,7 @@ class LQPcontroller(Controller):
         """Register WeightController if any.
 
         """
-        from arboris.controllers import WeightController
-        self.WeightController = None
-        for c in self.world._controllers:
+        for c in self.world.getcontrollers():
             if isinstance(c, WeightController):
                 self.WeightController = c
 
@@ -178,13 +219,12 @@ class LQPcontroller(Controller):
         """Initialize position, velocity and acceleration limits vectors.
 
         """
-        from numpy import nan, isnan
         if len(self.qlim) == 0 and len(self.vlim) == 0:
             self._qlim = []
             self._vlim = []
         else:
             joints = self.world.getjoints()
-            self._qlim = nan*zeros((self.ndof,2))
+            self._qlim = nan*zeros((self.ndof, 2))
             for n, val in self.qlim.iteritems():
                 self._qlim[joints[n].dof, 0] = val[0]
                 self._qlim[joints[n].dof, 1] = val[1]
@@ -193,12 +233,10 @@ class LQPcontroller(Controller):
                 self._vlim[joints[n].dof] = val
 
 
-    def _init_collision_shapes(self): #TODO
+    def _init_collision_shapes(self):
         """Initialize collision shape list
 
         """
-        from arboris.collisions import choose_solver
-        self.collision_shapes = []
         if 'collision shapes' in self.data:
             for couple_of_shapes in self.data['collision shapes']:
                 self.collision_shapes.append(choose_solver(*couple_of_shapes))
@@ -208,7 +246,6 @@ class LQPcontroller(Controller):
         """Initialize gforcemax vector.
 
         """
-        from numpy import array, zeros, nan, isnan
         j = self.world.getjoints()
         limits  = nan*zeros(self.ndof)
         for n, val in self.gforcemax.iteritems():
@@ -226,7 +263,7 @@ class LQPcontroller(Controller):
             self._dgforcemax = None
             self._prec_gforce = None
 
-        self.S = zeros((self.ndof, len(selected_dof)))          ### S the actuation matrix ###
+        self.S = zeros((self.ndof, len(selected_dof))) # S = actuation matrix #
         self.S[selected_dof, range(len(selected_dof))] = 1
         self.n_gforce = len(selected_dof)
 
@@ -235,12 +272,10 @@ class LQPcontroller(Controller):
         """ Register the available constraints.
 
         """
-        from arboris.constraints import PointContact, BallAndSocketConstraint
-        self.constraints = []
-        self.is_enabled = {}
-        for c in self.world._constraints:
+        for c in self.world.getconstraints():
             ### We only consider PointContact and BallAndSocketConstraint ###
-            if isinstance(c, PointContact) or isinstance(c, BallAndSocketConstraint):
+            if isinstance(c, PointContact) or \
+               isinstance(c, BallAndSocketConstraint):
                 self.constraints.append(c)
                 self.is_enabled[c] = True
 
@@ -257,7 +292,6 @@ class LQPcontroller(Controller):
     def _init_solver(self):
         """
         """
-        from solver import init_solver
         init_solver(self.options['solver'], self.solver_options)
 
         self.cost = self.options['cost']
@@ -271,9 +305,7 @@ class LQPcontroller(Controller):
         self.X_solution = zeros(self.n_problem)
         self._gforce = zeros(self.ndof)
 
-        from numpy import ones, diag
         w_dgvel, w_fc, w_gforce = self.options['base weights']
-        #if self.options['cost'] is 'normal': #TODO: vary along 'cost'
         if self.options['formalism'] == 'dgvel chi':
             Ediag = ones(self.ndof)*w_dgvel
         else:
@@ -283,11 +315,6 @@ class LQPcontroller(Controller):
         self.E_base = diag(Ediag)
         self.f_base = zeros(self.n_problem)
 
-
-    def _init_misc(self):
-        """
-        """
-        self._performance = []
 
 
 ################################################################################
@@ -307,20 +334,18 @@ class LQPcontroller(Controller):
         * return the computed gforce of the problem
 
         """
-        from solver import solve
-
         _rec_performance = {}
         _tstart = _time()
 
         rstate = self._update_robot_state(dt, _rec_performance)
         self._update_tasks_and_events(rstate, dt, _rec_performance)
 
-        if self.world._current_time > 0 and len(self.tasks)>0:
+        if self.world.current_time > 0 and len(self.tasks)>0:
 
             A, b, G, h = self._get_constraints(rstate, dt, _rec_performance)
             sorted_tasks = self._get_sorted_tasks(_rec_performance)
 
-            i=0
+            i = 0
             _rec_performance['get cost function'] = []
             _rec_performance['solve'] = []
             _rec_performance['constrain next level'] = []
@@ -333,15 +358,16 @@ class LQPcontroller(Controller):
                 _rec_performance['get cost function'].append(_time() - _t0)
 
                 _t0 = _time() ### solve the LQP ###
-                self.X_solution[:] = solve(E, f, G, h, A, b, self.options['solver'])
+                self.X_solution[:] = solve(E, f, G, h, A, b, \
+                                           self.options['solver'])
                 _rec_performance['solve'].append(_time() - _t0)
 
-#                print "level "+str(i)+": solved"
-                _t0 = _time() ### concatenate solution with constraints to constrain next level ###
-                if i<len(sorted_tasks)-1:
+                ### add solution to constraints to constrain next level ###
+                _t0 = _time()
+                if i < len(sorted_tasks)-1:
                     A = vstack((A, E_tasks))
                     b = hstack((b, dot(E_tasks, self.X_solution)))
-                    i+=1
+                    i += 1
                 _rec_performance['constrain next level'].append(_time() - _t0)
 
             self._update_gforce_from_optimization(self.X_solution)
@@ -369,9 +395,6 @@ class LQPcontroller(Controller):
         * TODO: rewrite correctly
 
         """
-        from arboris.core import LinearConfigurationSpaceJoint
-        from numpy import nan
-        from numpy.linalg import inv
         _start_time = _time() ### get robot state ###
 
         linear_gpos = nan*zeros(self.ndof)
@@ -396,7 +419,7 @@ class LQPcontroller(Controller):
         rstate['g-n'] = gravity - dot(self.world.nleffects, self.world.gvel)
         rstate['dJc.gvel'] = dot(self.dJc, self.world.gvel)
 
-        if self.cost in ['wrench consistent', 'dtwist consistent', 'a/m']: #TODO: maybe find better?!?
+        if self.cost in ['wrench consistent', 'dtwist consistent', 'a/m']:
             rstate['Minv'] = inv(self.world.mass)
 
         if self.norm in ['inv(lambda)']:
@@ -433,34 +456,35 @@ class LQPcontroller(Controller):
         """ Extract the Jacobian and dJacobian matrix of contact points.
 
         """
-        from arboris.constraints import PointContact, BallAndSocketConstraint
-        from arboris.homogeneousmatrix import adjoint, dAdjoint, iadjoint, inv
         self.Jc[:]  = 0.
         self.dJc[:] = 0.
         i = 0
         for c in self.constraints:
             if c.is_enabled() and c.is_active() and self.is_enabled[c]:
+                frame0, frame1 = c._frames[0], c._frames[1]
                 if isinstance(c, PointContact):
-                    self.dJc[3*i:(3*(i+1)), :] = c._frames[1].djacobian[3:6] - c._frames[0].djacobian[3:6]
-                    if c._frames[1].body in self.bodies:
-                        self.Jc [3*i:(3*(i+1)), :] += c._frames[1].jacobian[3:6]
-                    if c._frames[0].body in self.bodies:
-                        self.Jc [3*i:(3*(i+1)), :] -= c._frames[0].jacobian[3:6]
+                    self.dJc[3*i:(3*(i+1)), :] = frame1.djacobian[3:6] - \
+                                                 frame0.djacobian[3:6]
+                    if frame1.body in self.bodies:
+                        self.Jc [3*i:(3*(i+1)), :] += frame1.jacobian[3:6]
+                    if frame0.body in self.bodies:
+                        self.Jc [3*i:(3*(i+1)), :] -= frame0.jacobian[3:6]
                 elif isinstance(c, BallAndSocketConstraint):
-                    H1_0   = dot(inv(c._frames[1].pose), c._frames[0].pose)
+                    H1_0   = dot(inv(frame1.pose), frame0.pose)
                     Ad1_0  = adjoint(H1_0)
                     Ad0_1  = iadjoint(H1_0)
-                    T0_g_0 = c._frames[0].twist
-                    T1_g_1 = c._frames[1].twist
+                    T0_g_0 = frame0.twist
+                    T1_g_1 = frame1.twist
                     T1_g_0 = dot(Ad0_1, T1_g_1)
                     T0_1_0 = T0_g_0 - T1_g_0
-                    J0 = dot(Ad1_0, c._frames[0].jacobian)
-                    J1 = c._frames[1].jacobian
-                    dJ0 = dot(Ad1_0, c._frames[0].djacobian) + dot(dAdjoint(Ad1_0, T0_1_0), c._frames[0].jacobian)
-                    dJ1 = c._frames[1].djacobian
+                    J0 = dot(Ad1_0, frame0.jacobian)
+                    J1 = frame1.jacobian
+                    dJ0 = dot(Ad1_0, frame0.djacobian) + \
+                          dot(dAdjoint(Ad1_0, T0_1_0), frame0.jacobian)
+                    dJ1 = frame1.djacobian
                     self.Jc[3*i:(3*(i+1)), :]  = (J1[3:6] - J0[3:6])
                     self.dJc[3*i:(3*(i+1)), :] = (dJ1[3:6] - dJ0[3:6])
-            i+=1
+            i += 1
 
 
 
@@ -469,7 +493,6 @@ class LQPcontroller(Controller):
 #   RESOLUTION LOOP FUNCTIONS
 #
 ################################################################################
-
     def _get_constraints(self, rstate, dt, _rec_performance):
         """Return the constraints of the problem.
 
@@ -492,21 +515,26 @@ class LQPcontroller(Controller):
         :return: the set of equalities and inequalities (A,b,G,h)
 
         """
-        from constraints import eq_motion, eq_contact_acc, ineq_gforcemax, ineq_joint_limits, ineq_friction
-        _start_time = _time() ### get LQP constraints from world configuration ###
+        ### get LQP constraints from world configuration ###
+        _start_time = _time()
 
         Minv_Jchi_T = rstate.get('Minv(Jchi.T)') # these functions return None
-        Minv_G_N = rstate.get('Minv(g-n)') # if Minv_Jchi_T & Minv_G_N not in rstate (not computed)
-        const_activity = [c.is_enabled() and c.is_active() and self.is_enabled[c] for c in self.constraints]
+        Minv_G_N = rstate.get('Minv(g-n)')       # if Minv_Jchi_T & Minv_G_N not
+                                                 # in rstate (not computed)
+        const_activity = [c.is_enabled() and c.is_active() and \
+                          self.is_enabled[c] for c in self.constraints]
 
         ####### Compute constraints #######
         equalities   = [(zeros((0, self.n_problem)), zeros(0))]
         inequalities = [(zeros((0, self.n_problem)), zeros(0))]
 
-        if self.world._current_time > 0:
-            inequalities.append( ineq_gforcemax(self._gforcemax, self._dgforcemax, dt, self._prec_gforce, self.ndof, self.n_fc, self.formalism) )
+        if self.world.current_time > 0:
+            inequalities.append( ineq_gforcemax(self._gforcemax, \
+                                 self._dgforcemax, dt, self._prec_gforce, \
+                                 self.ndof, self.n_fc, self.formalism) )
         else:
-            inequalities.append( ineq_gforcemax(self._gforcemax, None, None, self.ndof, self.n_fc, self.formalism) )
+            inequalities.append( ineq_gforcemax(self._gforcemax, None, None, \
+                                 self.ndof, self.n_fc, self.formalism) )
         if self.formalism == 'dgvel chi':
             M = rstate['M']
             Jchi_T = rstate['Jchi.T']
@@ -515,23 +543,30 @@ class LQPcontroller(Controller):
         if len(self.constraints) > 0:
             Jc = rstate['Jc']
             dJc_gvel = rstate['dJc.gvel']
-            equalities.append( eq_contact_acc(Jc, dJc_gvel, self.n_problem, const_activity, self.formalism, Minv_Jchi_T, Minv_G_N) )
+            equalities.append( eq_contact_acc(Jc, dJc_gvel, self.n_problem, \
+                                              const_activity, self.formalism, \
+                                              Minv_Jchi_T, Minv_G_N) )
         if len(self._mus) > 0:
             npan = self.options['npan']
-            inequalities.append( ineq_friction(self._mus, const_activity, npan, self.ndof, self.n_problem, self.formalism) )
+            inequalities.append( ineq_friction(self._mus, const_activity, \
+                                               npan, self.ndof, \
+                                               self.n_problem, self.formalism) )
         if len(self._qlim) > 0 or len(self._vlim) > 0:
             gpos = rstate['linear gpos']
             gvel = rstate['gvel']
-            hpos, hvel = max(self.options['pos horizon'], dt), max(self.options['vel horizon'], dt)
-            inequalities.append( ineq_joint_limits(self._qlim, self._vlim, gpos, gvel, hpos, hvel, self.n_problem, self.formalism, Minv_Jchi_T, Minv_G_N) )
-        ## TODO: this part is about obstacle avoidance:
-        if len(self.collision_shapes) > 0:
+            hpos = max(self.options['pos horizon'], dt)
+            hvel = max(self.options['vel horizon'], dt)
+            inequalities.append( ineq_joint_limits(self._qlim, self._vlim, \
+                                 gpos, gvel, hpos, hvel, self.n_problem, \
+                                 self.formalism, Minv_Jchi_T, Minv_G_N) )
+        # This part is about obstacle avoidance:
+        if len(self.collision_shapes) > 0: 
             sdist, svel, J, dJ = self._extract_collision_shapes_data()
-            from constraints import ineq_collision_avoidance
             hpos = max(self.options['avoidance horizon'], 10*dt)
             gvel = rstate['gvel']
-            inequalities.append( ineq_collision_avoidance(sdist, svel, J, dJ, gvel, hpos, self.n_problem, self.formalism, Minv_Jchi_T, Minv_G_N) )
-#            raise NotImplementedError
+            inequalities.append( ineq_collision_avoidance(sdist, svel, J, dJ, \
+                                 gvel, hpos, self.n_problem, self.formalism, \
+                                 Minv_Jchi_T, Minv_G_N) )
 
         eq_A  , eq_b   = zip(*equalities)
         ineq_G, ineq_h = zip(*inequalities)
@@ -587,9 +622,6 @@ class LQPcontroller(Controller):
     def _extract_collision_shapes_data(self):
         """
         """
-        from numpy.linalg import norm
-        from arboris.homogeneousmatrix import inv, adjoint, dAdjoint
-
         cs = self.collision_shapes
         sdist = zeros(len(cs))
         svel  = zeros(len(cs))
@@ -606,15 +638,15 @@ class LQPcontroller(Controller):
             Adc0f0, Adc1f1 = adjoint(inv(Hf0c0)), adjoint(inv(Hf1c1))
             tc0_g_c0, tc1_g_c1 = dot(Adc0f0, tf0_g_f0), dot(Adc1f1, tf1_g_f1)
             Jc0, Jc1 = dot(Adc0f0, f0.jacobian), dot(Adc1f1, f1.jacobian)
-            #as Tc_f_c = 0, there is no motion between the 2 frames because same body
+            #as Tc_f_c = 0, no motion between the 2 frames because same body
             dJc0, dJc1 = dot(Adc0f0, f0.jacobian), dot(Adc1f1, f1.jacobian)
             
             svel[i] = tc1_g_c1[5] - tc0_g_c0[5]
-            dJ[i,:] = dJc1[5] - dJc0[5]
+            dJ[i, :] = dJc1[5] - dJc0[5]
             if f1.body in self.bodies:
-                J[i,:]  += Jc1[5]
+                J[i, :]  += Jc1[5]
             if f0.body in self.bodies:
-                J[i,:]  -= Jc0[5]
+                J[i, :]  -= Jc0[5]
         return sdist, svel, J, dJ
 
 
@@ -643,11 +675,10 @@ class LQPcontroller(Controller):
     def get_performance(self):
         """
         """
-        from numpy import array, sum, mean
         perf = {}
         if len(self._performance):
             for n in self._performance[0]:
-                perf[n] = array([sum(p[n]) for p in self._performance])
+                perf[n] = array([np_sum(p[n]) for p in self._performance])
         return perf
 
 

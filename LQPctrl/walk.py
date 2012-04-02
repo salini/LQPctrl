@@ -227,9 +227,9 @@ class WalkingCtrl(Ctrl):
             end   = asarray(new_goal["pos"])
             vect = (end - start)
             angle = arctan2(vect[1], vect[0])
-            traj = array([linspace(start[0], end[0], 100), \
-                          linspace(start[1], end[1], 100), \
-                          angle*ones(100)]).T
+            traj = array([linspace(start[0], end[0], 10000), \
+                          linspace(start[1], end[1], 10000), \
+                          angle*ones(10000)]).T
             s = self.step
             l_start, r_start = self._get_lf_pose(), self._get_rf_pose()
             points  = traj2zmppoints(traj, s["length"], s["side"], \

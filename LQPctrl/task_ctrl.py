@@ -84,7 +84,7 @@ class KpCtrl(dTwistCtrl):
             _goal = self._goal
 
         self._error = diff(_goal, pos)
-        return dot(self._Kp, diff(_goal, pos)) + dot(self._Kd, -vel)
+        return dot(self._Kp, self._error) + dot(self._Kd, -vel)
 
 
 class KpTrajCtrl(KpCtrl):

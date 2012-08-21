@@ -246,9 +246,9 @@ def com_properties(bodies, compute_J=True):
             result = body_com_properties(b, compute_J)
             if compute_J:
                 P_com, J_com, dJ_com = result
-                P_com_sum += m*P_com
-                J_com_sum += m*J_com[3:6, :]
-                dJ_com_sum = m*dJ_com[3:6, :]
+                P_com_sum  += m*P_com
+                J_com_sum  += m*J_com[3:6, :]
+                dJ_com_sum += m*dJ_com[3:6, :]
             else:
                 P_com = result
                 P_com_sum += m*P_com

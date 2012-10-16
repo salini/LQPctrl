@@ -309,11 +309,8 @@ class Activator(Exe):
     def __init__(self, element, activity=True):
         """ An initialization of the Activator instance
 
-        inputs:
-        element: List with anything with an "is_active" method
-        activity: - True to set the element activity to True
-                  - False to set the element activity to False
-                  - Anything else to toggle the element activity
+        :param element: list with anything with an "is_active" method
+        :param activity: True | False | Anything else to toggle activity
         """
         Exe.__init__(self)
         if not isinstance(element, list):
@@ -340,13 +337,10 @@ class ConstActivator(Exe):
     """ Set the activity of a constraint in the Arboris Simulation
     """
     def __init__(self, const, activity=True, in_lqp=False):
-        """ An initialization of the ArborisConstActivator instance
+        """ An initialization of the ArborisConstActivator instance.
 
-        inputs:
-        const: a list of constraint, should be arboris.core.Constraint instance
-        activity: - True to set the element activity to True
-                  - False to set the element activity to False
-                  - Anything else to toggle the element activity
+        :param const: list of constraint, arboris.core.Constraint instance
+        :param activity: True | False | Anything else to toggle activity
         """
         Exe.__init__(self)
         if not isinstance(const, list):
@@ -359,8 +353,7 @@ class ConstActivator(Exe):
         self.LQP_ctrl = LQP_ctrl
 
     def update(self, rstate, dt, is_cond_fulfilled):
-        """ Set the activity of the constraint in the simulation
-        if the conditions are fulfilled.
+        """ Set the constraint activity if the conditions are fulfilled.
         """
         if is_cond_fulfilled:
             if self.in_lqp is False:

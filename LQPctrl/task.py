@@ -343,11 +343,15 @@ class dTwistTask(Task):
 
 
     def init(self, world, LQP_ctrl):
-        """ Initialize a dTwistTask.
+        r""" Initialize a dTwistTask.
 
         A generic dTwistTask is written as following:
-                                     |dgvel|
-        T = norm( [E_dgvel E_chi(=0)]| chi | + f )
+        
+        .. math::
+            T = \norm{ \begin{bmatrix} E_{dgvel} & E_{\chi}(=0) \end{bmatrix}
+            \begin{bmatrix} dgvel \\ \chi \end{bmatrix}
+            +f
+            }
         
         as it is a dTwistTask, we don't care about E_chi, and we just need
         informations about the jacobian of the task (J), its derivative (dJ)
@@ -703,11 +707,15 @@ class WrenchTask(Task):
 
 
     def init(self, world, LQP_ctrl):
-        """ Initialize a WrenchTask.
+        r""" Initialize a WrenchTask.
 
         A generic WrenchTask is written as following:
-                                     |dgvel|
-        T = norm( [E_dgvel(=0) E_chi]| chi | + f )
+        
+        .. math::
+            T = \norm{ \begin{bmatrix} E_{dgvel}(=0) & E_{\chi} \end{bmatrix}
+            \begin{bmatrix} dgvel \\ \chi \end{bmatrix}
+            +f
+            }
         
         as it is a WrenchTask, we don't care about E_dgvel,
         we just need informations about the jacobian of the task (J) if needed

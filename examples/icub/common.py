@@ -78,7 +78,7 @@ def get_usual_observers(w, scene=True, perf=True, h5=False, daenim=True):
     if h5:
         obs.append(Hdf5Logger("sim.h5", group="/", mode="w", flat=True))
     if daenim:
-        obs.append(DaenimCom("daenim", "scene.dae", options="-fps 15",  flat=True))
+        obs.append(DaenimCom("scene.dae", options="-fps 15",  flat=True))
     return obs
 
 def print_lqp_perf(lqpc):

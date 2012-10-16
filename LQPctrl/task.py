@@ -128,14 +128,18 @@ class Task(NamedObject):
         """
         _starting_time = _time()
         if self._is_active:
-            self._update_error(rstate['X_solution'])
-            _start_time = _time()
-            self._update_matrices(rstate, dt)
-            _rec_performance['update tasks and events/' + self.name + \
-                             '/update matrices'] = _time() - _start_time
-            self._update_E_f(rstate, dt, _rec_performance)
-        _rec_performance['update tasks and events/' + \
-                         self.name] = _time() - _starting_time
+            try:
+                self._update_error(rstate['X_solution'])
+                _start_time = _time()
+                self._update_matrices(rstate, dt)
+                _rec_performance['update tasks and events/' + self.name + \
+                                 '/update matrices'] = _time() - _start_time
+                self._update_E_f(rstate, dt, _rec_performance)
+                _rec_performance['update tasks and events/' + \
+                             self.name] = _time() - _starting_time
+            except:
+                print("problem with task "+self.name)
+                raise
 
     def _update_error(self, X_solution):
         """ Compute the error of the previous time step.

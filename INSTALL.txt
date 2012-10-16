@@ -1,0 +1,113 @@
+
+What we use...
+==============
+
+...for the simulation
+---------------------
+
+The program is written in python 2.7. It should work on python 3.2.
+For some tutorial, see `dive into python <http://www.diveintopython.net/>`_.
+
+It requires :
+
+* `numpy & scipy <http://numpy.scipy.org/>`_.
+* `cvxopt <http://abel.ee.ucla.edu/cvxopt/>`_.
+
+
+...for the documentation
+------------------------
+
+The documentation is written in the reST markup language and processed
+by sphinx (version >=6). See the sphinx (and reST) documentation
+`online <http://sphinx.pocoo.org/>`_. We use sphinx plugins which allow
+
+* to embed latex in the doc,
+* to parse the docstrings spread in the code,
+* to run the examples with doctest,
+* to generate the uml diagrams using graphviz.
+
+
+
+Installation on Ubuntu
+======================
+
+Installing LQPctrl dependancies
+-------------------------------
+
+::
+
+  sudo apt-get install  ipython  python-numpy  python-scipy  python-cvxopt
+
+
+Installing LQPctrl
+------------------
+
+When you have downloaded LQPctrl, go in the new directory,
+open a terminal and run::
+
+  sudo python setup.py install
+
+if you have no administration rights, you can install locally::
+
+  python setup.py install --user
+
+
+
+
+Installing the tools needed to build the documentation
+------------------------------------------------------
+
+::
+
+  sudo aptitude install python-sphinx graphviz texlive-latex-base dvipng
+
+
+
+
+
+For windows
+===========
+
+Installing dependancies
+-----------------------
+
+...manually
+~~~~~~~~~~~
+
+Install...
+
+- `python 2.7 <http://www.python.org/>`_, or if you want to try, python 3.2,
+- `numpy & scipy <http://numpy.scipy.org/>`_; Choose the same python version,
+- `cvxopt <http://abel.ee.ucla.edu/cvxopt/>`_.
+
+For windows 64bits, these modules are available in this unofficial
+`website <http://www.lfd.uci.edu/~gohlke/pythonlibs/>`_.
+
+
+...from Python(x,y)
+~~~~~~~~~~~~~~~~~~~
+
+All these programs (and many others) are conveniently packaged by the
+`Python(x,y) <http://www.pythonxy.com>`_ project, you may install them
+from there.
+
+
+Installing LQPctrl
+------------------
+
+When you have downloaded LQPctrl, open a command prompt in
+the LQPctrl folder (shift + right click on windows 7) and run::
+
+  setup.py install
+
+
+
+
+
+
+
+
+
+
+
+

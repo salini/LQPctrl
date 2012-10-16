@@ -2,3 +2,5 @@
 *.pyo
 examples/scene.dae
 examples/icub/scene.dae
+build/
+dist/

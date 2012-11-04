@@ -226,7 +226,10 @@ class WalkingCtrl(Ctrl):
             start = self._get_center_of_feet()
             end   = asarray(new_goal["pos"])
             vect = (end - start)
-            angle = arctan2(vect[1], vect[0])
+            if "angle" in new_goal:
+                angle = new_goal["angle"]
+            else:
+                angle = arctan2(vect[1], vect[0])
             traj = array([linspace(start[0], end[0], 10000), \
                           linspace(start[1], end[1], 10000), \
                           angle*ones(10000)]).T

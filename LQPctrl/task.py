@@ -3,7 +3,6 @@
 #date=21 april 2011
 
 from abc import ABCMeta, abstractmethod
-from time import time as _time
 
 from arboris.core import NamedObject, NamedObjectsList, Joint, \
                          LinearConfigurationSpaceJoint, Frame, Body, Constraint
@@ -117,7 +116,7 @@ class Task(NamedObject):
         self._L_T           = zeros((len(self._cdof), len(self._cdof)))
 
 
-    def update(self, rstate, dt, _rec_performance):
+    def update(self, rstate, dt):
         """ Update the task parameters.
 
         It computes: 
@@ -126,20 +125,14 @@ class Task(NamedObject):
         updates E & f before LQPcontroller compute the whole cost function
         of the problem.
         """
-        _starting_time = _time()
         if self._is_active:
             try:
                 self._update_error(rstate['X_solution'])
-                _start_time = _time()
                 self._update_matrices(rstate, dt)
-                _rec_performance['update tasks and events/' + self.name + \
-                                 '/update matrices'] = _time() - _start_time
-                self._update_E_f(rstate, dt, _rec_performance)
-                _rec_performance['update tasks and events/' + \
-                             self.name] = _time() - _starting_time
+                self._update_E_f(rstate, dt)
             except:
                 print("problem with task "+self.name)
-                raise
+                raise RuntimeError
 
     def _update_error(self, X_solution):
         """ Compute the error of the previous time step.
@@ -159,7 +152,7 @@ class Task(NamedObject):
         pass
 
 
-    def _update_E_f(self, rstate, dt, _rec_performance):
+    def _update_E_f(self, rstate, dt):
         """ Update E & f which define the task.
 
         It computes:
@@ -169,21 +162,9 @@ class Task(NamedObject):
         finally: E & f, depend on formalism.
         """
         self._raz_flags()
-        _start_time = _time()
         self._update_E_f_cost(rstate, dt)
-        t1 = _time() - _start_time
-        _start_time = _time()
         self._update_E_f_norm(rstate, dt)
-        t2 = _time() - _start_time
-        _start_time = _time()
         self._update_E_f_formalism(rstate, dt)
-        t3 = _time() - _start_time
-        _rec_performance['update tasks and events/' + self.name + \
-                         '/update cost'] = t1
-        _rec_performance['update tasks and events/' + self.name + \
-                         '/update norm'] = t2
-        _rec_performance['update tasks and events/' + self.name + \
-                         '/update formalism'] = t3
 
 
     def _raz_flags(self):
@@ -601,6 +582,9 @@ class MultiJointTask(dTwistTask):
 
 
 
+
+from arboris.observers import CoMObserver
+
 class CoMTask(dTwistTask):
     """ TODO.
     """
@@ -610,6 +594,7 @@ class CoMTask(dTwistTask):
         """ TODO.
         """
         dTwistTask.__init__(self, *args, **kwargs)
+        self.comObs = CoMObserver(bodies)
 
         self._bodies = bodies
         self._ctrl = ctrl
@@ -629,16 +614,23 @@ class CoMTask(dTwistTask):
         """
         dTwistTask.init(self, world, LQP_ctrl)
         self._ctrl.init(world, LQP_ctrl)
+        self.comObs.init(world)
 
 
     def _update_matrices(self, rstate, dt):
         """
         """
-        com_gpos, J, dJ = com_properties(self._bodies)
+        self.comObs.update(dt)
+        
+        #com_gpos, J, dJ = com_properties(self._bodies)
+        com_gpos = self.comObs.get_CoMPosition()
+        J        = self.comObs.get_CoMJacobian()
+        dJ       = self.comObs.get_CoMdJacobian()
+        
         com_gvel = dot(J, rstate['gvel'])
         cmd = self._ctrl.update(com_gpos, com_gvel, rstate, dt)
 
-        self._J[:]     = J[self._cdof, :]
+        self._J[:]     = J[self._cdof,  :]
         self._dJ[:]    = dJ[self._cdof, :]
         self._dVdes[:] = cmd[self._cdof]
 
@@ -865,9 +857,9 @@ class ForceTask(WrenchTask):
         self._ctrl.init(world, LQP_ctrl)
 
         S_wrench = zeros((len(self._cdof), LQP_ctrl.n_fc))
-        for i in range(len(LQP_ctrl.constraints)):
+        for i in arange(len(LQP_ctrl.constraints)):
             if self._constraint is LQP_ctrl.constraints[i]:
-                S_wrench[range(len(self._cdof)), (self._cdof+3*i)] = 1
+                S_wrench[arange(len(self._cdof)), (self._cdof+3*i)] = 1
 
         self._S[:, :LQP_ctrl.n_fc] = S_wrench
 
@@ -962,7 +954,7 @@ class MultiTask(Task):
             st.init(world, LQP_ctrl)
 
 
-    def update(self, rstate, dt, _rec_performance):
+    def update(self, rstate, dt):
         """ Update the task parameters.
 
         It computes: 
@@ -973,21 +965,18 @@ class MultiTask(Task):
         """
         if self._is_active: #TODO: this test should be done or not?!?
             self._update_error(rstate['X_solution'])
-            self._update_matrices(rstate, dt, _rec_performance)
-            self._update_E_f(rstate, dt, _rec_performance)
+            self._update_matrices(rstate, dt)
+            self._update_E_f(rstate, dt)
 
-    def _update_matrices(self, rstate, dt, _rec_performance):
+    def _update_matrices(self, rstate, dt):
         for st in self._subtask:
             if st.is_active:
-                _start_time = _time()
                 st._update_matrices(rstate, dt)
-                _rec_performance['update tasks and events/' + st.name + \
-                                 '/update matrices'] = _time() - _start_time
 
-    def _update_E_f(self, rstate, dt,  _rec_performance):
+    def _update_E_f(self, rstate, dt):
         for st in self._subtask:
             if st.is_active:
-                st._update_E_f(rstate, dt,  _rec_performance)
+                st._update_E_f(rstate, dt)
 
     @property
     def E(self):

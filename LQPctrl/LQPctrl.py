@@ -14,9 +14,8 @@ from arboris.constraints import PointContact, BallAndSocketConstraint
 from arboris.homogeneousmatrix import adjoint, dAdjoint, iadjoint
 
 from numpy import zeros, hstack, vstack, dot, ones, diag, eye, nan, isnan, \
-                  array, zeros, sum as np_sum
+                  array, zeros, arange, sum as np_sum
 from numpy.linalg import inv
-from time import time as _time
 
 from constraints import ineq_collision_avoidance, eq_motion, eq_contact_acc, \
                         ineq_gforcemax, ineq_joint_limits, ineq_friction
@@ -77,7 +76,7 @@ def lqpc_solver_options(options=None):
 
     """
     options = options or {}
-    _options = {'show_progress' : True,
+    _options = {'show_progress' : False,
                 'abstol'        : 1e-8,
                 'reltol'        : 1e-7,
                 'feastol'       : 1e-7,
@@ -250,7 +249,7 @@ class LQPcontroller(Controller):
         limits  = nan*zeros(self.ndof)
         for n, val in self.gforcemax.iteritems():
             limits[j[n].dof] = val
-        selected_dof = [i for i in range(self.ndof) if not isnan(limits[i])]
+        selected_dof = [i for i in arange(self.ndof) if not isnan(limits[i])]
         self._gforcemax  = limits[selected_dof]
 
         if self.dgforcemax:
@@ -264,7 +263,7 @@ class LQPcontroller(Controller):
             self._prec_gforce = None
 
         self.S = zeros((self.ndof, len(selected_dof))) # S = actuation matrix #
-        self.S[selected_dof, range(len(selected_dof))] = 1
+        self.S[selected_dof, arange(len(selected_dof))] = 1
         self.n_gforce = len(selected_dof)
 
 
@@ -334,45 +333,34 @@ class LQPcontroller(Controller):
         * return the computed gforce of the problem
 
         """
-        _rec_performance = {}
-        _tstart = _time()
 
-        rstate = self._update_robot_state(dt, _rec_performance)
-        self._update_tasks_and_events(rstate, dt, _rec_performance)
+        rstate = self._update_robot_state(dt)
+        self._update_tasks_and_events(rstate, dt)
 
         if self.world.current_time > 0 and len(self.tasks)>0:
 
-            A, b, G, h = self._get_constraints(rstate, dt, _rec_performance)
-            sorted_tasks = self._get_sorted_tasks(_rec_performance)
+            A, b, G, h = self._get_constraints(rstate, dt)
+            sorted_tasks = self._get_sorted_tasks()
 
             i = 0
-            _rec_performance['get cost function'] = []
-            _rec_performance['solve'] = []
-            _rec_performance['constrain next level'] = []
             for tasks in sorted_tasks:
 
-                _t0 = _time() ### compute cost function ###
+                ### compute cost function ###
                 E_tasks, f_tasks = self._get_objective(tasks, dt)
                 E = vstack((self.E_base, E_tasks))
                 f = hstack((self.f_base, f_tasks))
-                _rec_performance['get cost function'].append(_time() - _t0)
 
-                _t0 = _time() ### solve the LQP ###
+                ### solve the LQP ###
                 self.X_solution[:] = solve(E, f, G, h, A, b, \
                                            self.options['solver'])
-                _rec_performance['solve'].append(_time() - _t0)
 
                 ### add solution to constraints to constrain next level ###
-                _t0 = _time()
                 if i < len(sorted_tasks)-1:
                     A = vstack((A, E_tasks))
                     b = hstack((b, dot(E_tasks, self.X_solution)))
                     i += 1
-                _rec_performance['constrain next level'].append(_time() - _t0)
 
             self._update_gforce_from_optimization(self.X_solution)
-            _rec_performance['total'] = _time() - _tstart
-            self._performance.append(dict(_rec_performance))
         else:
             self._gforce[:] = 0.
 
@@ -385,7 +373,7 @@ class LQPcontroller(Controller):
 #
 ################################################################################
 
-    def _update_robot_state(self, dt, _rec_performance):
+    def _update_robot_state(self, dt):
         """ Compute the state of the robot.
 
         It returns a dictionary with the following string keys:
@@ -395,7 +383,6 @@ class LQPcontroller(Controller):
         * TODO: rewrite correctly
 
         """
-        _start_time = _time() ### get robot state ###
 
         linear_gpos = nan*zeros(self.ndof)
         for j in self.world.getjoints():
@@ -437,19 +424,16 @@ class LQPcontroller(Controller):
             rstate['Minv(Jchi.T)'] = dot(rstate['Minv'], rstate['Jchi.T'])
             rstate['Minv(g-n)'] = dot(rstate['Minv'], rstate['g-n'])
 
-        _rec_performance['update robot state'] = _time() - _start_time
         return rstate
 
 
-    def _update_tasks_and_events(self, rstate, dt, _rec_performance):
+    def _update_tasks_and_events(self, rstate, dt):
         """ Update the tasks and events registered in the LQP.
         """
-        _start_time = _time() ### update tasks and events ###
         for e in self.events:
-            e.update(rstate, dt, _rec_performance)
+            e.update(rstate, dt)
         for t in self.tasks:
-            t.update(rstate, dt, _rec_performance)
-        _rec_performance['update tasks and events'] = _time() - _start_time
+            t.update(rstate, dt)
 
 
     def _update_Jc(self):
@@ -493,7 +477,7 @@ class LQPcontroller(Controller):
 #   RESOLUTION LOOP FUNCTIONS
 #
 ################################################################################
-    def _get_constraints(self, rstate, dt, _rec_performance):
+    def _get_constraints(self, rstate, dt):
         """Return the constraints of the problem.
 
         Each constraint is build as:
@@ -516,7 +500,6 @@ class LQPcontroller(Controller):
 
         """
         ### get LQP constraints from world configuration ###
-        _start_time = _time()
 
         Minv_Jchi_T = rstate.get('Minv(Jchi.T)') # these functions return None
         Minv_G_N = rstate.get('Minv(g-n)')       # if Minv_Jchi_T & Minv_G_N not
@@ -574,25 +557,22 @@ class LQPcontroller(Controller):
         A, b = vstack(eq_A), hstack(eq_b)
         G, h = vstack(ineq_G), hstack(ineq_h)
 
-        _rec_performance['get constraints'] = _time() - _start_time
         return A, b, G, h
 
 
-    def _get_sorted_tasks(self, _rec_performance):
+    def _get_sorted_tasks(self):
         """Get of list of level-sorted tasks.
 
         :return: A list of tasks from low-level to high-level.
         :rtype: list(LQPctrl.tasks)
 
         """
-        _start_time = _time() ### sort the tasks by level ###
-
         unsorted_tasks = list(self.tasks)
         sorted_tasks = []
         while unsorted_tasks:
             task = unsorted_tasks.pop(0)
             is_placed = False
-            for i in range(len(sorted_tasks)):
+            for i in arange(len(sorted_tasks)):
                 if task.level == sorted_tasks[i][0].level:
                     sorted_tasks[i].append(task)
                     is_placed = True
@@ -604,7 +584,6 @@ class LQPcontroller(Controller):
             if not is_placed:
                 sorted_tasks.append([task])
 
-        _rec_performance['sort tasks'] = _time() - _start_time
         return sorted_tasks
 
 
@@ -628,7 +607,7 @@ class LQPcontroller(Controller):
         J      = zeros((len(cs), self.ndof))
         dJ     = zeros((len(cs), self.ndof))
 
-        for i in range(len(self.collision_shapes)):
+        for i in arange(len(self.collision_shapes)):
             sdist[i], Hgc0, Hgc1 = cs[i][1](cs[i][0])
             sdist[i] -= self.options['avoidance margin']
             f0, f1 = cs[i][0][0].frame, cs[i][0][1].frame
@@ -670,15 +649,5 @@ class LQPcontroller(Controller):
 
     def get_gforce(self):
         return self._gforce.copy()
-
-
-    def get_performance(self):
-        """
-        """
-        perf = {}
-        if len(self._performance):
-            for n in self._performance[0]:
-                perf[n] = array([np_sum(p[n]) for p in self._performance])
-        return perf
 
 

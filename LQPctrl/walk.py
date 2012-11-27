@@ -341,8 +341,8 @@ class WalkingTask(MultiTask):
         self._ctrl.init(world, LQP_ctrl)
 
 
-    def update(self, rstate, dt, _rec_performance):
-        MultiTask.update(self, rstate, dt, _rec_performance)
+    def update(self, rstate, dt):
+        MultiTask.update(self, rstate, dt)
         self._ctrl.update(rstate, dt)
 
 

@@ -4,3 +4,4 @@ examples/scene.dae
 examples/icub/scene.dae
 build/
 dist/
+/VERSION.txt

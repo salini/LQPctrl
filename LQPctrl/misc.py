@@ -5,7 +5,7 @@
 from arboris.homogeneousmatrix import inv, iadjoint, dAdjoint
 from arboris.massmatrix import principalframe, transport
 
-from numpy import array, zeros, sqrt, sign, dot, cross
+from numpy import array, zeros, sqrt, sign, dot, cross, arange
 from numpy.linalg import norm
 
 from scipy.interpolate import piecewise_polynomial_interpolate as ppi
@@ -43,7 +43,7 @@ def rot2quat(R):
     """
     real = sqrt(R[0][0]+R[1][1]+R[2][2]+1.)/2.
     s = [sign(R[2][1]-R[1][2]), sign(R[0][2]-R[2][0]), sign(R[1][0]-R[0][1])]
-    for i in range(len(s)):
+    for i in arange(len(s)):
         if s[i] == 0:
             s[i] = 1
     img = array([s[0]*sqrt(abs( R[0][0]-R[1][1]-R[2][2]+1.))/2.,
@@ -329,7 +329,7 @@ def convex_hull(point):
         if p[0] < selected_pt[0]:
             selected_pt = p
     CH.append(selected_pt)
-    for i in range(len(valid_pt)):
+    for i in arange(len(valid_pt)):
         if valid_pt[i] is selected_pt:
             valid_pt.pop(i)
             break
@@ -347,7 +347,7 @@ def convex_hull(point):
             break
         else:
             CH.append(selected_pt)
-            for i in range(len(valid_pt)):
+            for i in arange(len(valid_pt)):
                 if valid_pt[i] is selected_pt:
                     valid_pt.pop(i)
                     break
@@ -365,7 +365,7 @@ def is_in_convex_hull(CH, point, margin=0.):
         return False
 
     is_in = True
-    for i in range(len(CH)-1):
+    for i in arange(len(CH)-1):
         n = array([ float(CH[i+1][1]-CH[i][1]), -float((CH[i+1][0]-CH[i][0]))])
         n /= norm(n)
         ch0 = CH[i]   + margin*n
@@ -448,7 +448,7 @@ def simple_der(y, dt):
     dy0 = (y[1]-y[0])/dt
     dyn = (y[-1]-y[-2])/dt
     Dt = 2*dt
-    dy = [(y[i+1]-y[i-1])/Dt for i in range(1, len(y)-1)]
+    dy = [(y[i+1]-y[i-1])/Dt for i in arange(1, len(y)-1)]
     return [dy0]+dy+[dyn]
 
 
@@ -483,10 +483,10 @@ def interpolate_rotation_matrix(R0, R1, tend, dt):
     R = [qi.to_rot() for qi in q]
 
     dq = [der_q(q[0], q[1], dt)] + \
-          [der_q(q[i-1], q[i+1], 2*dt) for i in range(1, len(q)-1)] + \
+          [der_q(q[i-1], q[i+1], 2*dt) for i in arange(1, len(q)-1)] + \
           [der_q(q[-2], q[-1], dt)]
 
-    omega = [2*dot(Q(q[i]), dq[i]) for i in range(len(q))]
+    omega = [2*dot(Q(q[i]), dq[i]) for i in arange(len(q))]
     domega = simple_der(omega, dt)
 
     return R, omega, domega
@@ -508,7 +508,7 @@ def interpolate_vector(v0, v1, tend, dt):
     """
     assert(len(v0)==len(v1))
     v = array([ppi([0, tend], [[v0[i], 0, 0], [v1[i], 0, 0]], \
-               arange(0, tend+dt, dt)) for i in range(len(v0))]).T
+               arange(0, tend+dt, dt)) for i in arange(len(v0))]).T
     dv = simple_der(v, dt)
     ddv = simple_der(dv, dt)
 
@@ -538,7 +538,7 @@ def interpolate_htr(H_begin, H_end, tend, dt):
     R, w, dw = interpolate_rotation_matrix(H_begin[0:3, 0:3], \
                                            H_end[0:3, 0:3], tend, dt)
     p, v, dv = interpolate_vector(H_begin[0:3, 3], H_end[0:3, 3], tend, dt)
-    pos = [make_htr(R[i], p[i]) for i in range(len(R))]
-    vel = [array([w[i], v[i]]).flatten() for i in range(len(w))]
-    acc = [array([dw[i], dv[i]]).flatten() for i in range(len(dw))]
+    pos = [make_htr(R[i], p[i]) for i in arange(len(R))]
+    vel = [array([w[i], v[i]]).flatten() for i in arange(len(w))]
+    acc = [array([dw[i], dv[i]]).flatten() for i in arange(len(dw))]
     return pos, vel, acc

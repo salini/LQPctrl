@@ -94,7 +94,7 @@ class Event(NamedObject):
         for exe in self.exe:
             exe.init(world, LQP_ctrl)
 
-    def update(self, rstate, dt, _rec_performance):
+    def update(self, rstate, dt):
         """ Check if the conditions are fulfilled, execute if valid
         """
         if self.is_active:

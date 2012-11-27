@@ -8,7 +8,7 @@ from arboris.core import Joint, Frame
 from arboris.homogeneousmatrix import ishomogeneousmatrix
 from arboris.controllers import WeightController
 
-from numpy import zeros, array, asarray, dot, arange, ones, vstack, eye, sqrt
+from numpy import zeros, array, asarray, dot, arange, ones, vstack, eye, sqrt, tril_indices
 from numpy.linalg import inv
 
 from misc import quatpos
@@ -141,9 +141,10 @@ class ZMPCtrl(QuadraticCtrl):
         self._Px[:, 1] = arange(1, self._h+1)*self._dt
         self._range_N_dt_2_on_2 = (arange(1, self._h+1)*self._dt)**2/2.
         self._temp_Pu = zeros((self._h, self._h))
-        for i in range(self._h):
+        for i in arange(self._h):
             diag_i = (1 + 3*i + 3*i**2)*dt**3/6
-            self._temp_Pu[range(i, self._h), range(self._h-i)] = diag_i
+            self._temp_Pu[arange(i, self._h), arange(self._h-i)] = diag_i
+        self._ltri_idx = tril_indices(self._h, -1)
 
         self._cdof = cdof
         if 0 not in self._cdof:
@@ -187,8 +188,7 @@ class ZMPCtrl(QuadraticCtrl):
         #self._Px[:,1] = arange(1, self._h+1)*self._dt      #idem
         self._Px[:, 2] = self._range_N_dt_2_on_2 - hong
         self._Pu[:] = self._temp_Pu
-        for i in range(self._h):
-            self._Pu[range(i, self._h), range(self._h-i)] -= self._dt*hong
+        self._Pu[self._ltri_idx] -= self._dt*hong
 
     def update(self, pos, vel, rstate, dt):
         assert(abs(dt-self._dt) < 1e-8)

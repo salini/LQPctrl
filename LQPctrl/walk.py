@@ -222,7 +222,7 @@ class WalkingCtrl(Ctrl):
         if action == 'idle':
             mid_feet = self._get_center_of_feet()
             self.zmp_ctrl.set_goal([mid_feet])
-        if action == 'goto':
+        elif action == 'goto':
             start = self._get_center_of_feet()
             end   = asarray(new_goal["pos"])
             vect = (end - start)
@@ -249,6 +249,41 @@ class WalkingCtrl(Ctrl):
             self._next_foot = self.step['start']
             self._prev_foot = 'right' if \
                               self.step['start'] == 'left' else 'left'
+        elif action == 'one step':
+            if "angle" in new_goal:
+                angle = new_goal["angle"]
+            else:
+                alf = self._get_lf_pose()[2]
+                arf = self._get_rf_pose()[2]
+                angle = (alf+arf)/2.
+            fpose = (self._get_lf_pose() + self._get_rf_pose() )/2.
+            forward  = array( [ cos(fpose[2]), sin(fpose[2]) ] )
+            left_dir = array( [-sin(fpose[2]), cos(fpose[2]) ] )
+            l_start = self._get_lf_pose()
+            r_start = self._get_rf_pose()
+            s = self.step
+            if s["start"] == 'left':
+                lpose = s["length"]*forward + s["side"]*left_dir
+                points = [l_start, r_start, (lpose[0], lpose[1], angle)]
+            elif s["start"] == 'right':
+                rpose = s["length"]*forward - s["side"]*left_dir # minus because if right foot
+                points = [r_start, l_start, (rpose[0], rpose[1], angle)]
+            else:
+                raise ValueError
+            
+            zmp_ref = zmppoints2zmptraj(points, s["time"], self.dt)
+            self.zmp_ctrl.set_goal(zmp_ref)
+            ftraj = zmppoints2foottraj(points, s["time"], \
+                                       s["ratio"], s["height"], \
+                                       self.dt, self.cdof, self._R0)
+            self._sequence = self.world.current_time + \
+                             (arange(len(ftraj)+1) + .5)*self.step["time"]
+            self._foot_traj = ftraj
+            self._num_step = 0
+            self._next_foot = self.step['start']
+            self._prev_foot = 'right' if \
+                              self.step['start'] == 'left' else 'left'
+
 
     def update(self, rstate, dt):
         if len(self._sequence) and self._num_step < len(self._sequence):

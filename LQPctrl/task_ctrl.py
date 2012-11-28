@@ -117,14 +117,17 @@ class KpTrajCtrl(KpCtrl):
 
 
 class QuadraticCtrl(dTwistCtrl):
-    def __init__(self, goal, QonR, horizon, dt):
+    def __init__(self, goal, QonR, horizon, dt, stride=1):
         """ WARNING: THIS CONTROLLER WORKS ONLY IF dt IS CONSTANT!!!!!!
         """
         dTwistCtrl.__init__(self)
         self._goal = asarray(goal)
         self._QonR = QonR
-        self._h    = int(horizon/dt)
-        self._dt   = dt
+        self._dt   = dt * stride
+        self._real_dt = dt
+        self._stride = stride
+        self._h    = int(horizon/self._dt)
+        
 
     def set_goal(self, new_goal):
         self._goal = asarray(new_goal)
@@ -132,8 +135,8 @@ class QuadraticCtrl(dTwistCtrl):
 
 
 class ZMPCtrl(QuadraticCtrl):
-    def __init__(self, zmp_traj, QonR, horizon, dt, cdof):
-        QuadraticCtrl.__init__(self, zmp_traj, QonR, horizon, dt)
+    def __init__(self, zmp_traj, QonR, horizon, dt, cdof, stride=1):
+        QuadraticCtrl.__init__(self, zmp_traj, QonR, horizon, dt, stride)
 
         self._Px = zeros((self._h, 3))
         self._Pu = zeros((self._h, self._h))
@@ -142,7 +145,7 @@ class ZMPCtrl(QuadraticCtrl):
         self._range_N_dt_2_on_2 = (arange(1, self._h+1)*self._dt)**2/2.
         self._temp_Pu = zeros((self._h, self._h))
         for i in arange(self._h):
-            diag_i = (1 + 3*i + 3*i**2)*dt**3/6
+            diag_i = (1 + 3*i + 3*i**2)*self._dt**3/6
             self._temp_Pu[arange(i, self._h), arange(self._h-i)] = diag_i
         self._ltri_idx = tril_indices(self._h, -1)
 
@@ -163,8 +166,8 @@ class ZMPCtrl(QuadraticCtrl):
             if isinstance(c, WeightController):
                 self._gravity = abs(c.gravity)
 
-    def _get_com_hat_and_hong(self, pos, vel):
-        dvel = (vel - self._prev_vel)/self._dt
+    def _get_com_hat_and_hong(self, pos, vel, dt):
+        dvel = (vel - self._prev_vel)/dt
         self._prev_vel = vel.copy()
         com_hat = array([pos, vel, dvel])
         com_hat = com_hat[:, self._cdof]
@@ -174,7 +177,7 @@ class ZMPCtrl(QuadraticCtrl):
         return com_hat, hong
 
     def _fit_goal_for_horizon(self):
-        goal = self._goal[self._counter:self._counter+self._h]
+        goal = self._goal[self._counter:self._counter+(self._h*self._stride):self._stride]
         self._counter += 1
         if len(goal) < self._h:
             final_value = self._goal[-1].reshape((1, 2))
@@ -191,9 +194,7 @@ class ZMPCtrl(QuadraticCtrl):
         self._Pu[self._ltri_idx] -= self._dt*hong
 
     def update(self, pos, vel, rstate, dt):
-        assert(abs(dt-self._dt) < 1e-8)
-
-        com_hat, hong = self._get_com_hat_and_hong(pos, vel)
+        com_hat, hong = self._get_com_hat_and_hong(pos, vel, dt)
         zmp_ref = self._fit_goal_for_horizon()
         self._update_Px_and_Pu(hong)
 

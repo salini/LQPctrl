@@ -3,7 +3,7 @@
 #author=Joseph Salini
 #date=16 june 2011
 
-from common import create_icub_and_init, get_usual_observers, print_lqp_perf
+from common import create_icub_and_init, get_usual_observers
 from arboris.robots import icub
 from arboris.homogeneousmatrix import rotx
 from numpy import pi, eye, zeros
@@ -98,7 +98,6 @@ simulate(w, arange(0,6.,dt), obs)
 #         #
 ###########
 print("end of the simulation")
-print_lqp_perf(lqpc)
 
 from numpy import array
 import pylab as pl

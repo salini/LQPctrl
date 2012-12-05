@@ -3,7 +3,7 @@
 #author=Joseph Salini
 #date=16 may 2011
 
-from common import create_3r_and_init, add_plane_and_point_on_arm, get_usual_observers, print_lqp_perf
+from common import create_3r_and_init, add_plane_and_point_on_arm, get_usual_observers
 from numpy import pi, array
 
 #################################
@@ -71,7 +71,6 @@ simulate(w, arange(0,3,0.01), obs)
 #         #
 ###########
 print("end of the simulation")
-print_lqp_perf(lqpc)
 
 import pylab as pl
 pl.plot(obs[-1].get_record())

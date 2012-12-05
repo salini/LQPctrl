@@ -3,7 +3,7 @@
 #author=Joseph Salini
 #date=16 may 2011
 
-from common import create_3r_and_init, print_lqp_perf, RecordFramePosition
+from common import create_3r_and_init, RecordFramePosition
 
 from arboris.core import simulate
 from arboris.homogeneousmatrix import rotz
@@ -48,7 +48,9 @@ START : {0}
     w.register(lqpc)
 
     obs = [PerfMonitor(True), RecordFramePosition(frames["EndEffector"])]
-    simulate(w, arange(0,3.,0.01), obs)
+    
+    timeline = arange(0,3.,0.01)
+    simulate(w, timeline, obs)
 
     traj[opt] = obs[-1].get_record()
     results[opt] = lqpc.get_performance()
@@ -61,22 +63,23 @@ for k in traj:
 pl.title("trajectories of end effector")
 
 
-label = [('update robot state', 'up rstate', "g", 'center'), ('update tasks and events', 'up tasks','b', 'center'),
-         ('get constraints', 'get const','c', 'top'), #('sort tasks', 'sort tasks','m', 'center'),
-         ('get cost function', 'get cost', 'y', 'bottom'),
-         ('solve', 'solve','r', 'center'), #('constrain next level', 'const next', 'k', 'center')
+label = [('robot_state', "g", 'center'), ('tasks','b', 'center'),
+         ('constraints','c', 'top'), ('solve','r', 'center'),
          ]
+
 from numpy import mean
 ind = arange(len(options))
 starting = zeros(len(options))
 width = .4
 pl.figure()
-for l,s,c,va in label:
+for l,c,va in label:
     high = array([mean(results[n][l]) for n in options])*1000.
-    pl.bar(ind, high, width, starting, color=c, label=s)
+    pl.bar(ind, high, width, starting, color=c, label=l)
     for i in arange(len(options)):
         pl.text(ind[i]+width*1.1, starting[i] + high[i]/2., "{0:2.2f}".format(high[i]), ha='left', va=va )
     starting += high
+
+
 
 pl.ylabel('time (ms)')
 pl.title('Performance of LQPcontroller with different options')

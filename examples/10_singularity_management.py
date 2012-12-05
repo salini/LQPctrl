@@ -3,7 +3,7 @@
 #author=Joseph Salini
 #date=16 may 2011
 
-from common import create_3r_and_init, print_lqp_perf, RecordJointPosition, RecordFramePosition
+from common import create_3r_and_init, RecordJointPosition, RecordFramePosition
 
 from arboris.core import simulate
 from arboris.observers import PerfMonitor

@@ -58,12 +58,6 @@ def get_usual_observers(w, scene=True, perf=True, h5=False, daenim=True):
         obs.append(DaenimCom("scene.dae", options="-fps 15",  flat=True))
     return obs
 
-def print_lqp_perf(lqpc):
-    print('-------------------------------------------------')
-    perf = lqpc.get_performance()
-    for k,v in perf.items():
-        percent = round(mean(v)/mean(perf['total'])*100.,2)
-        print k, '(', percent, '%): ', round(mean(v)*1000,2), 'ms'
 
 
 from abc import ABCMeta, abstractmethod, abstractproperty

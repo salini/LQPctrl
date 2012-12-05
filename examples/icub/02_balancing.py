@@ -3,7 +3,7 @@
 #author=Joseph Salini
 #date=15 june 2011
 
-from common import create_icub_and_init, get_usual_observers, print_lqp_perf
+from common import create_icub_and_init, get_usual_observers
 from arboris.robots import icub
 
 def get_zmp_traj(_type, opt):
@@ -92,7 +92,6 @@ simulate(w, arange(0,6.,dt), obs)
 #         #
 ###########
 print("end of the simulation")
-print_lqp_perf(lqpc)
 
 from numpy import array
 import pylab as pl

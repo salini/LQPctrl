@@ -3,7 +3,7 @@
 #author=Joseph Salini
 #date=15 june 2011
 
-from common import create_icub_and_init, get_usual_observers, print_lqp_perf
+from common import create_icub_and_init, get_usual_observers
 from arboris.robots import icub
 from arboris.core import SubFrame, Controller
 from arboris.shapes import Sphere, Cylinder, Box
@@ -148,7 +148,5 @@ simulate(w, arange(0,5.,0.01), obs)
 #         #
 ###########
 print("end of the simulation")
-print_lqp_perf(lqpc)
-
 
 

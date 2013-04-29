@@ -17,7 +17,7 @@ def create_icub_and_init(chair=False, gravity=False):
     ## CREATE THE WORLD
     w = World()
     w._up[:] = [0,0,1]
-    icub.add(w)
+    icub.add(w, create_shapes=False)
     w.register(Plane(w.ground, (0,0,1,0), "floor"))
     
     if chair is True:
@@ -68,7 +68,8 @@ def add_plane_and_point_on_arm(w, coeff):
 
 
 def get_usual_observers(w, scene=True, perf=True, h5=False, daenim=True):
-    from arboris.visu_collada import write_collada_scene
+    from arboris.visu.dae_writer import write_collada_scene, add_shapes_to_dae
+    from arboris.visu            import pydaenimCom
     from arboris.observers import PerfMonitor, Hdf5Logger, DaenimCom
     obs = []
     if scene:
@@ -78,7 +79,8 @@ def get_usual_observers(w, scene=True, perf=True, h5=False, daenim=True):
     if h5:
         obs.append(Hdf5Logger("sim.h5", group="/", mode="w", flat=True))
     if daenim:
-        obs.append(DaenimCom("scene.dae", options="-fps 15",  flat=True))
+        add_shapes_to_dae("scene.dae", "icub_simple.dae")
+        obs.append(pydaenimCom("scene.dae", flat=True))
     return obs
 
 

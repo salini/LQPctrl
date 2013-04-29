@@ -9,6 +9,11 @@ from numpy.linalg import svd, LinAlgError
 from cvxopt import solvers, matrix
 from cvxopt.solvers import qp as qpsolver
 
+try :
+    from pyQP.pyQP import solve_qp_as_cvxopt
+except ImportError:
+    print "cannot import pyQP. Cannot be selected as solver"
+
 def _reduce_constraints(A, b):
     """ Make the constraint non-singular
 
@@ -38,9 +43,11 @@ def _reduce_constraints(A, b):
 def init_solver(solver='cvxopt', options=None):
     """
     """
-    if solver is 'cvxopt':
+    if solver == 'cvxopt':
         if options is not None:
             solvers.options.update(options)
+    elif solver == 'pyQP':
+        pass
     else:
         raise ValueError, \
               'The required solver is not implemented. try another solver.'
@@ -49,11 +56,12 @@ def init_solver(solver='cvxopt', options=None):
 def solve(E, f, G, h, A, b, solver='cvxopt'):
     """
     """
+    A, b = _reduce_constraints(A, b) #TODO: decomment this, no?
     
-
-    A, b = _reduce_constraints(A, b)
-    if solver is 'cvxopt':
+    if solver == 'cvxopt':
         X_solution = _solve_cvxopt(E, f, G, h, A, b)
+    elif solver == 'pyQP':
+        X_solution = _solve_pyQP(E, f, G, h, A, b)
     else:
         raise ValueError, \
               'The required solver is not implemented. try another solver.'
@@ -64,8 +72,8 @@ def solve(E, f, G, h, A, b, solver='cvxopt'):
 def _solve_cvxopt(E, f, G, h, A, b):
     """
     """
-    P = 2*dot(E.T, E)
-    q = 2*dot(f, E)
+    P = dot(E.T, E)
+    q = dot(f, E)
     Pp = matrix(P)
     qp = matrix(q)
     Gp = matrix(G)
@@ -89,3 +97,18 @@ def _solve_cvxopt(E, f, G, h, A, b):
 
     X_sol = array(results['x']).flatten()
     return X_sol
+
+
+
+def _solve_pyQP(E, f, G, h, A, b):
+    """
+    """
+    P = dot(E.T, E)
+    q = dot(f, E)
+
+    X_sol = solve_qp_as_cvxopt(P, q, G, h, A, b)
+    
+    print X_sol
+    return X_sol
+
+

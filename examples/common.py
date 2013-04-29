@@ -14,7 +14,7 @@ from numpy import array, mean
 def create_3r_and_init(gpos=(0,0,0), gvel=(0,0,0), gravity=False):
     ## CREATE THE WORLD
     w = World()
-    simplearm.add_simplearm(w)
+    simplearm.add_simplearm(w, with_shapes=True)
 
     ## INIT
     joints = w.getjoints()
@@ -45,8 +45,9 @@ def add_plane_and_point_on_arm(w, coeff):
 
 
 def get_usual_observers(w, scene=True, perf=True, h5=False, daenim=True):
-    from arboris.visu_collada import write_collada_scene
-    from arboris.observers import PerfMonitor, Hdf5Logger, DaenimCom
+    from arboris.visu.dae_writer import write_collada_scene
+    from arboris.visu            import pydaenimCom
+    from arboris.observers import PerfMonitor, Hdf5Logger
     obs = []
     if scene:
         write_collada_scene(w, "scene.dae", flat=True)
@@ -55,7 +56,7 @@ def get_usual_observers(w, scene=True, perf=True, h5=False, daenim=True):
     if h5:
         obs.append(Hdf5Logger("sim.h5", group="/", mode="w", flat=True))
     if daenim:
-        obs.append(DaenimCom("scene.dae", options="-fps 15",  flat=True))
+        obs.append(pydaenimCom("scene.dae", flat=True))
     return obs
 
 

@@ -68,9 +68,10 @@ def add_plane_and_point_on_arm(w, coeff):
 
 
 def get_usual_observers(w, scene=True, perf=True, h5=False, daenim=True):
-    from arboris.visu.dae_writer import write_collada_scene, add_shapes_to_dae
-    from arboris.visu            import pydaenimCom
-    from arboris.observers import PerfMonitor, Hdf5Logger, DaenimCom
+    from arboris.visu.dae_writer   import write_collada_scene, add_shapes_to_dae
+    from arboris.visu              import pydaenimCom
+    from arboris.visu.visu_collada import DaenimCom
+    from arboris.observers import PerfMonitor, Hdf5Logger
     obs = []
     if scene:
         write_collada_scene(w, "scene.dae", flat=True)

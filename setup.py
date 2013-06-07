@@ -83,6 +83,6 @@ setup(name='LQPctrl',
               'Operating System :: OS Independent',
               'Programming Language :: Python',
               'Topic :: Scientific/Engineering :: Physics'],
-        requires=['arboris-python', 'numpy', 'scipy', 'cvxopt'],
+        requires=['arboris', 'numpy', 'scipy', 'cvxopt'],
       cmdclass=cmdclass)
 readme.close()

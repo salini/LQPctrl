@@ -108,7 +108,6 @@ def _solve_pyQP(E, f, G, h, A, b):
 
     X_sol = solve_qp_as_cvxopt(P, q, G, h, A, b)
     
-    print X_sol
     return X_sol
 
 
